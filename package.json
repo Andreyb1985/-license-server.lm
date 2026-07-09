@@ -1,0 +1,19 @@
+{
+  "name": "lohnmail-license-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=local.env ./node_modules/next/dist/bin/next dev",
+    "build": "next build",
+    "start": "next start",
+    "license:create": "node --env-file=local.env scripts/create-license.js",
+    "license:revoke": "node --env-file=local.env scripts/revoke-license.js"
+  },
+  "dependencies": {
+    "next": "^15.0.0",
+    "pg": "^8.12.0",
+    "stripe": "^17.4.0"
+  },
+  "devDependencies": {}
+}
