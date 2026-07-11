@@ -1,4 +1,5 @@
 import { json, readJson, requireAdmin } from '../../../../../lib/http.js';
+import { withTransaction } from '../../../../../lib/db.js';
 import { insertLicense, publicLicenseResponse } from '../../../../../lib/license.js';
 
 export async function POST(request) {
@@ -9,18 +10,54 @@ export async function POST(request) {
     if (!['lifetime', 'demo', 'internal'].includes(type)) {
       throw new Error('type must be lifetime, demo or internal.');
     }
-    const license = await insertLicense({
-      type,
-      status: 'active',
-      plan: type === 'lifetime' ? 'Lifetime' : type === 'internal' ? 'Internal' : 'Demo',
-      company_name: body.company_name || null,
-      email: body.email || null,
-      seats: Number(body.seats || 1),
-      trial_ends_at: type === 'demo' && body.expires_at ? body.expires_at : null,
-      current_period_end: type === 'demo' && body.expires_at ? body.expires_at : null,
-      created_by: 'admin-api',
-      note: body.note || null,
+
+    const companyName = String(body.company_name || '').trim();
+    const email = String(body.email || '').trim().toLowerCase();
+    const seats = Math.max(1, Math.min(999, Number(body.seats || 1)));
+    const expiresAt = String(body.expires_at || '').trim() || null;
+    const plan = String(body.plan || '').trim() || (type === 'lifetime' ? 'Lifetime' : type === 'internal' ? 'Internal' : 'Demo');
+
+    if (!companyName) throw new Error('company_name is required.');
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('email is invalid.');
+
+    const license = await withTransaction(async (client) => {
+      let customerId = null;
+      if (email) {
+        const existing = await client.query(
+          `select id from customers where lower(email) = $1 order by created_at desc limit 1`,
+          [email],
+        );
+        if (existing.rows[0]) {
+          customerId = existing.rows[0].id;
+          await client.query(
+            `update customers set company_name = coalesce(nullif($1, ''), company_name) where id = $2`,
+            [companyName, customerId],
+          );
+        } else {
+          const created = await client.query(
+            `insert into customers (email, company_name) values ($1, $2) returning id`,
+            [email, companyName],
+          );
+          customerId = created.rows[0].id;
+        }
+      }
+
+      return insertLicense({
+        customer_id: customerId,
+        type,
+        status: 'active',
+        plan,
+        company_name: companyName,
+        email: email || null,
+        seats,
+        activated_machine_id: body.machine_id || null,
+        trial_ends_at: type === 'demo' && expiresAt ? expiresAt : null,
+        current_period_end: type === 'demo' && expiresAt ? expiresAt : null,
+        created_by: 'admin-ui',
+        note: body.note || null,
+      }, client);
     });
+
     return json({ ok: true, ...publicLicenseResponse(license, 'Manual license created') });
   } catch (error) {
     return json({ ok: false, message: error.message }, 400);

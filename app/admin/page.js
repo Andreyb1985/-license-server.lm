@@ -1,5 +1,6 @@
 import { query } from '../../lib/db.js';
 import { maskLicenseKey } from '../../lib/license.js';
+import AdminLicenseForm from './AdminLicenseForm.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -210,6 +211,8 @@ export default async function AdminPage({ searchParams }) {
         <Metric label="Dubletten" value={data.duplicates.length} tone={data.duplicates.length ? 'bad' : 'ok'} />
       </section>
 
+      <AdminLicenseForm adminSecret={secret} />
+
       <section className="panel">
         <div className="panel-head">
           <h2>Lizenzen</h2>
@@ -345,6 +348,17 @@ const adminCss = `
   .panel-head{min-height:56px;padding:16px 18px;border-bottom:1px solid #edf2f7;display:flex;justify-content:space-between;gap:12px;align-items:center}
   .panel h2{font-size:18px}
   .panel small{color:#64748b}
+  .license-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;padding:18px}
+  .license-form label{display:grid;gap:7px;color:#334155;font-size:13px;font-weight:900}
+  .license-form input,.license-form select{height:42px;border:1px solid #dbe5ee;border-radius:10px;padding:0 12px;color:#0f172a;background:white;font:inherit;font-weight:700}
+  .license-form input:disabled{background:#f1f5f9;color:#94a3b8}
+  .license-form .wide{grid-column:span 2}
+  .license-form button,.created-license button{height:42px;border:0;border-radius:10px;background:#008357;color:white;font-weight:900;padding:0 16px;align-self:end}
+  .license-form button:disabled{opacity:.65}
+  .form-message{margin:0 18px 18px;padding:12px 14px;border-radius:12px;font-weight:800}.form-message.bad{background:#fee2e2;color:#dc2626}
+  .created-license{margin:0 18px 18px;padding:14px;border:1px solid #bbf7d0;background:#f0fdf4;border-radius:12px;display:flex;justify-content:space-between;gap:14px;align-items:center}
+  .created-license small{display:block;margin-bottom:8px;color:#008357;font-weight:900}
+  .created-license code{font-size:15px;background:white}
   .grid.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
   .table-wrap{overflow:auto}
   table{width:100%;border-collapse:collapse;font-size:13px}
@@ -359,6 +373,6 @@ const adminCss = `
   .empty{height:60px;color:#64748b;text-align:center}
   .notice{padding:14px 16px;border-radius:12px;margin-bottom:16px;font-weight:800}.notice.bad{background:#fee2e2;color:#dc2626}
   .help{padding:18px}.help p{margin-top:8px;color:#64748b}.code-grid{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
-  @media (max-width:1100px){.metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.grid.two{grid-template-columns:1fr}}
-  @media (max-width:720px){.admin-shell{padding:18px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-header{align-items:flex-start;gap:12px;flex-direction:column}}
+  @media (max-width:1100px){.metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.grid.two{grid-template-columns:1fr}.license-form{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width:720px){.admin-shell{padding:18px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-header{align-items:flex-start;gap:12px;flex-direction:column}.license-form{grid-template-columns:1fr}.license-form .wide{grid-column:auto}.created-license{align-items:flex-start;flex-direction:column}}
 `;
