@@ -19,11 +19,12 @@ export default function AdminLicenseForm({ adminSecret }) {
 
   async function createLicense(event) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setBusy(true);
     setError('');
     setResult(null);
 
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     const payload = Object.fromEntries(form.entries());
     if (payload.type !== 'demo' && payload.type !== 'trial') payload.expires_at = '';
 
@@ -39,7 +40,7 @@ export default function AdminLicenseForm({ adminSecret }) {
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.message || 'Lizenz konnte nicht erstellt werden.');
       setResult(data);
-      event.currentTarget.reset();
+      formElement.reset();
       setLicenseType('lifetime');
     } catch (err) {
       setError(err.message || 'Lizenz konnte nicht erstellt werden.');
