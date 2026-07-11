@@ -68,15 +68,15 @@ async function ensureSubscriptionLicense(client, customer, subscription, email, 
     stripe_subscription_id: subscription.id,
     current_period_end: fromUnix(subscription.current_period_end),
     created_by: 'stripe-webhook',
-  });
+  }, client);
 }
 
-async function handleSubscription(subscription) {
+async function handleSubscription(subscription, fallbackMetadata = {}) {
   const stripeCustomerId = String(subscription.customer || '');
   const customerObject = await getStripe().customers.retrieve(stripeCustomerId);
-  const email = customerObject.email || subscription.metadata?.email || null;
-  const companyName = subscription.metadata?.company_name || customerObject.metadata?.company_name || null;
-  const machineId = subscription.metadata?.machine_id || null;
+  const email = customerObject.email || subscription.metadata?.email || fallbackMetadata.email || null;
+  const companyName = subscription.metadata?.company_name || fallbackMetadata.company_name || customerObject.metadata?.company_name || null;
+  const machineId = subscription.metadata?.machine_id || fallbackMetadata.machine_id || null;
   await withTransaction(async (client) => {
     const customer = await upsertCustomer(client, { email, companyName, stripeCustomerId });
     await upsertSubscription(client, customer, subscription);
@@ -87,10 +87,11 @@ async function handleSubscription(subscription) {
 async function handleCheckoutSession(session) {
   if (!session.subscription) return;
   const subscription = await getStripe().subscriptions.retrieve(session.subscription);
-  if (session.customer_email && !subscription.metadata?.email) {
-    subscription.metadata = { ...(subscription.metadata || {}), email: session.customer_email, company_name: session.metadata?.company_name || '' };
-  }
-  await handleSubscription(subscription);
+  await handleSubscription(subscription, {
+    email: session.customer_email,
+    company_name: session.metadata?.company_name || '',
+    machine_id: session.metadata?.machine_id || '',
+  });
 }
 
 async function markLicenseBySubscription(subscriptionId, status, currentPeriodEnd = null) {
@@ -125,10 +126,18 @@ export async function POST(request) {
         await markLicenseBySubscription(object.id, object.current_period_end && object.current_period_end * 1000 > Date.now() ? 'canceled' : 'expired', fromUnix(object.current_period_end));
         break;
       case 'invoice.payment_succeeded':
-        if (object.subscription) await markLicenseBySubscription(object.subscription, 'active', fromUnix(object.lines?.data?.[0]?.period?.end));
+        if (object.subscription) {
+          const subscription = await getStripe().subscriptions.retrieve(object.subscription);
+          await handleSubscription(subscription);
+          await markLicenseBySubscription(object.subscription, 'active', fromUnix(object.lines?.data?.[0]?.period?.end));
+        }
         break;
       case 'invoice.payment_failed':
-        if (object.subscription) await markLicenseBySubscription(object.subscription, 'past_due');
+        if (object.subscription) {
+          const subscription = await getStripe().subscriptions.retrieve(object.subscription);
+          await handleSubscription(subscription);
+          await markLicenseBySubscription(object.subscription, 'past_due');
+        }
         break;
       case 'refund.created':
       case 'charge.refunded':
