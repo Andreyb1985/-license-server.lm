@@ -1,7 +1,7 @@
 import { json } from '../../../../lib/http.js';
 import { query, withTransaction } from '../../../../lib/db.js';
 import { getStripe } from '../../../../lib/stripe.js';
-import { findBillableSubscriptionLicense, insertLicense, stripeStatusToLicenseStatus } from '../../../../lib/license.js';
+import { findActiveTrialLicense, findBillableSubscriptionLicense, insertLicense, stripeStatusToLicenseStatus } from '../../../../lib/license.js';
 
 function fromUnix(value) {
   return value ? new Date(value * 1000).toISOString() : null;
@@ -48,10 +48,22 @@ async function upsertSubscription(client, customer, subscription) {
 async function ensureSubscriptionLicense(client, customer, subscription, email, companyName, machineId) {
   const existing = await client.query(`select * from licenses where stripe_subscription_id = $1 limit 1`, [subscription.id]);
   const status = stripeStatusToLicenseStatus(subscription.status);
+  const previousTrialId = subscription.metadata?.previous_trial_license_id || '';
+  const previousTrial = previousTrialId
+    ? (await client.query(`select * from licenses where id = $1 and type = 'trial' limit 1`, [previousTrialId])).rows[0]
+    : await findActiveTrialLicense({ machineId, email }, client);
+  const previousTrialEnd = previousTrial?.trial_ends_at || subscription.metadata?.previous_trial_ends_at || null;
+
   if (existing.rows[0]) {
     await client.query(
-      `update licenses set status = $1, current_period_end = $2, stripe_customer_id = $3, activated_machine_id = coalesce(activated_machine_id, $4) where id = $5`,
-      [status, fromUnix(subscription.current_period_end), subscription.customer, machineId || null, existing.rows[0].id],
+      `update licenses
+       set status = $1,
+           current_period_end = $2,
+           trial_ends_at = coalesce(trial_ends_at, $3),
+           stripe_customer_id = $4,
+           activated_machine_id = coalesce(activated_machine_id, $5)
+       where id = $6`,
+      [status, fromUnix(subscription.current_period_end), previousTrialEnd, subscription.customer, machineId || null, existing.rows[0].id],
     );
     return;
   }
@@ -65,7 +77,7 @@ async function ensureSubscriptionLicense(client, customer, subscription, email, 
     );
     return;
   }
-  await insertLicense({
+  const subscriptionLicense = await insertLicense({
     customer_id: customer?.id || null,
     type: 'subscription',
     status,
@@ -76,9 +88,21 @@ async function ensureSubscriptionLicense(client, customer, subscription, email, 
     activated_machine_id: machineId || null,
     stripe_customer_id: subscription.customer,
     stripe_subscription_id: subscription.id,
+    trial_started_at: previousTrial?.trial_started_at || null,
+    trial_ends_at: previousTrialEnd,
     current_period_end: fromUnix(subscription.current_period_end),
     created_by: 'stripe-webhook',
   }, client);
+
+  if (previousTrial?.id) {
+    await client.query(
+      `update licenses
+       set status = 'expired',
+           note = trim(both from coalesce(note, '') || E'\n' || $1)
+       where id = $2`,
+      [`Converted to subscription ${subscription.id}; remaining trial moved to ${subscriptionLicense.license_key}.`, previousTrial.id],
+    );
+  }
 }
 
 async function handleSubscription(subscription, fallbackMetadata = {}) {
@@ -139,7 +163,7 @@ export async function POST(request) {
         if (object.subscription) {
           const subscription = await getStripe().subscriptions.retrieve(object.subscription);
           await handleSubscription(subscription);
-          await markLicenseBySubscription(object.subscription, 'active', fromUnix(object.lines?.data?.[0]?.period?.end));
+          await markLicenseBySubscription(object.subscription, stripeStatusToLicenseStatus(subscription.status), fromUnix(object.lines?.data?.[0]?.period?.end));
         }
         break;
       case 'invoice.payment_failed':

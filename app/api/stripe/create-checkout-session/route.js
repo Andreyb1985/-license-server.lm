@@ -1,7 +1,13 @@
 import crypto from 'crypto';
 import { json, readJson } from '../../../../lib/http.js';
 import { getStripe } from '../../../../lib/stripe.js';
-import { findBillableSubscriptionLicense, publicLicenseResponse } from '../../../../lib/license.js';
+import { findActiveTrialLicense, findBillableSubscriptionLicense, publicLicenseResponse } from '../../../../lib/license.js';
+
+function trialEndUnix(trialLicense) {
+  if (!trialLicense?.trial_ends_at) return null;
+  const value = Math.floor(new Date(trialLicense.trial_ends_at).getTime() / 1000);
+  return Number.isFinite(value) && value > Math.floor(Date.now() / 1000) ? value : null;
+}
 
 export async function POST(request) {
   try {
@@ -24,6 +30,8 @@ export async function POST(request) {
       });
     }
 
+    const existingTrial = await findActiveTrialLicense({ machineId, email });
+    const preservedTrialEnd = trialEndUnix(existingTrial);
     const idempotencySource = machineId || email;
     const idempotencyKey = idempotencySource
       ? `lohnmail-checkout-${crypto.createHash('sha256').update(`${priceId}:${idempotencySource}`).digest('hex')}`
@@ -40,13 +48,18 @@ export async function POST(request) {
         app: 'lohnmail',
         company_name: companyName,
         machine_id: machineId,
+        previous_trial_license_id: existingTrial?.id || '',
+        previous_trial_ends_at: existingTrial?.trial_ends_at || '',
       },
       subscription_data: {
+        ...(preservedTrialEnd ? { trial_end: preservedTrialEnd } : {}),
         metadata: {
           app: 'lohnmail',
           company_name: companyName,
           machine_id: machineId,
           email,
+          previous_trial_license_id: existingTrial?.id || '',
+          previous_trial_ends_at: existingTrial?.trial_ends_at || '',
         },
       },
     }, idempotencyKey ? { idempotencyKey } : undefined);

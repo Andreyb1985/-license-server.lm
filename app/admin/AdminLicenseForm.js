@@ -5,10 +5,17 @@ import { useMemo, useState } from 'react';
 export default function AdminLicenseForm({ adminSecret }) {
   const [licenseType, setLicenseType] = useState('lifetime');
   const [busy, setBusy] = useState(false);
+  const [trialBusy, setTrialBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [trialResult, setTrialResult] = useState(null);
+  const [trialError, setTrialError] = useState('');
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const defaultTrialEnd = useMemo(() => {
+    const value = new Date(Date.now() + 60 * 86400000);
+    return value.toISOString().slice(0, 10);
+  }, []);
 
   async function createLicense(event) {
     event.preventDefault();
@@ -18,7 +25,7 @@ export default function AdminLicenseForm({ adminSecret }) {
 
     const form = new FormData(event.currentTarget);
     const payload = Object.fromEntries(form.entries());
-    if (payload.type !== 'demo') payload.expires_at = '';
+    if (payload.type !== 'demo' && payload.type !== 'trial') payload.expires_at = '';
 
     try {
       const response = await fetch('/api/admin/licenses/create', {
@@ -38,6 +45,38 @@ export default function AdminLicenseForm({ adminSecret }) {
       setError(err.message || 'Lizenz konnte nicht erstellt werden.');
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function updateTrial(event) {
+    event.preventDefault();
+    const submitter = event.nativeEvent.submitter;
+    const action = submitter?.value || 'set';
+    setTrialBusy(true);
+    setTrialError('');
+    setTrialResult(null);
+
+    const form = new FormData(event.currentTarget);
+    const payload = Object.fromEntries(form.entries());
+    payload.action = action;
+    if (action === 'cancel') payload.trial_ends_at = '';
+
+    try {
+      const response = await fetch('/api/admin/licenses/trial', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminSecret}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.message || 'Trial konnte nicht aktualisiert werden.');
+      setTrialResult(data);
+    } catch (err) {
+      setTrialError(err.message || 'Trial konnte nicht aktualisiert werden.');
+    } finally {
+      setTrialBusy(false);
     }
   }
 
@@ -68,6 +107,7 @@ export default function AdminLicenseForm({ adminSecret }) {
         <label>
           Lizenztyp
           <select name="type" value={licenseType} onChange={(event) => setLicenseType(event.target.value)}>
+            <option value="trial">Trial</option>
             <option value="lifetime">Lifetime</option>
             <option value="demo">Demo</option>
             <option value="internal">Internal</option>
@@ -75,7 +115,7 @@ export default function AdminLicenseForm({ adminSecret }) {
         </label>
         <label>
           Plan
-          <input name="plan" placeholder={licenseType === 'internal' ? 'Internal' : licenseType === 'demo' ? 'Demo' : 'Professional'} />
+          <input name="plan" placeholder={licenseType === 'trial' ? 'Trial' : licenseType === 'internal' ? 'Internal' : licenseType === 'demo' ? 'Demo' : 'Professional'} />
         </label>
         <label>
           Seats
@@ -83,7 +123,14 @@ export default function AdminLicenseForm({ adminSecret }) {
         </label>
         <label>
           Ablaufdatum
-          <input name="expires_at" type="date" min={today} disabled={licenseType !== 'demo'} />
+          <input
+            key={licenseType}
+            name="expires_at"
+            type="date"
+            min={today}
+            defaultValue={licenseType === 'trial' || licenseType === 'demo' ? defaultTrialEnd : ''}
+            disabled={licenseType !== 'demo' && licenseType !== 'trial'}
+          />
         </label>
         <label>
           Computer-ID
@@ -106,6 +153,31 @@ export default function AdminLicenseForm({ adminSecret }) {
           <button type="button" onClick={copyLicenseKey}>{result.copied ? 'Kopiert' : 'Kopieren'}</button>
         </div>
       ) : null}
+
+      <div className="trial-admin">
+        <div>
+          <h3>Trial fuer bestehende Lizenz</h3>
+          <p>Setzt oder beendet den Probezeitraum fuer eine vorhandene Lizenz. Bei Stripe-Subscriptions wird der Trial auch in Stripe aktualisiert.</p>
+        </div>
+        <form className="trial-form" onSubmit={updateTrial}>
+          <label>
+            Lizenzschluessel
+            <input name="license_key" placeholder="LM-..." required />
+          </label>
+          <label>
+            Trial bis
+            <input name="trial_ends_at" type="date" min={today} defaultValue={defaultTrialEnd} />
+          </label>
+          <button type="submit" name="action" value="set" disabled={trialBusy}>Trial setzen</button>
+          <button className="danger" type="submit" name="action" value="cancel" disabled={trialBusy}>Trial beenden</button>
+        </form>
+        {trialError ? <div className="form-message bad">{trialError}</div> : null}
+        {trialResult ? (
+          <div className="form-message ok">
+            {trialResult.message || 'Trial aktualisiert.'} {trialResult.license_key_masked ? `(${trialResult.license_key_masked})` : ''}
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }

@@ -7,15 +7,17 @@ export async function POST(request) {
   try {
     const body = await readJson(request);
     const type = String(body.type || '').trim().toLowerCase();
-    if (!['lifetime', 'demo', 'internal'].includes(type)) {
-      throw new Error('type must be lifetime, demo or internal.');
+    if (!['trial', 'lifetime', 'demo', 'internal'].includes(type)) {
+      throw new Error('type must be trial, lifetime, demo or internal.');
     }
 
     const companyName = String(body.company_name || '').trim();
     const email = String(body.email || '').trim().toLowerCase();
     const seats = Math.max(1, Math.min(999, Number(body.seats || 1)));
     const expiresAt = String(body.expires_at || '').trim() || null;
-    const plan = String(body.plan || '').trim() || (type === 'lifetime' ? 'Lifetime' : type === 'internal' ? 'Internal' : 'Demo');
+    const defaultTrialEnd = new Date(Date.now() + 60 * 86400000).toISOString();
+    const effectiveTrialEnd = expiresAt || defaultTrialEnd;
+    const plan = String(body.plan || '').trim() || (type === 'trial' ? 'Trial' : type === 'lifetime' ? 'Lifetime' : type === 'internal' ? 'Internal' : 'Demo');
 
     if (!companyName) throw new Error('company_name is required.');
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('email is invalid.');
@@ -45,14 +47,15 @@ export async function POST(request) {
       return insertLicense({
         customer_id: customerId,
         type,
-        status: 'active',
+        status: type === 'trial' ? 'trialing' : 'active',
         plan,
         company_name: companyName,
         email: email || null,
         seats,
         activated_machine_id: body.machine_id || null,
-        trial_ends_at: type === 'demo' && expiresAt ? expiresAt : null,
-        current_period_end: type === 'demo' && expiresAt ? expiresAt : null,
+        trial_started_at: type === 'trial' ? new Date().toISOString() : null,
+        trial_ends_at: type === 'trial' ? effectiveTrialEnd : (type === 'demo' && expiresAt ? expiresAt : null),
+        current_period_end: type === 'trial' ? effectiveTrialEnd : (type === 'demo' && expiresAt ? expiresAt : null),
         created_by: 'admin-ui',
         note: body.note || null,
       }, client);
