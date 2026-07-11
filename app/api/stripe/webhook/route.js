@@ -1,7 +1,7 @@
 import { json } from '../../../../lib/http.js';
 import { query, withTransaction } from '../../../../lib/db.js';
 import { getStripe } from '../../../../lib/stripe.js';
-import { insertLicense, stripeStatusToLicenseStatus } from '../../../../lib/license.js';
+import { findBillableSubscriptionLicense, insertLicense, stripeStatusToLicenseStatus } from '../../../../lib/license.js';
 
 function fromUnix(value) {
   return value ? new Date(value * 1000).toISOString() : null;
@@ -52,6 +52,16 @@ async function ensureSubscriptionLicense(client, customer, subscription, email, 
     await client.query(
       `update licenses set status = $1, current_period_end = $2, stripe_customer_id = $3, activated_machine_id = coalesce(activated_machine_id, $4) where id = $5`,
       [status, fromUnix(subscription.current_period_end), subscription.customer, machineId || null, existing.rows[0].id],
+    );
+    return;
+  }
+  const duplicate = await findBillableSubscriptionLicense({ machineId, email, excludeSubscriptionId: subscription.id }, client);
+  if (duplicate) {
+    await client.query(
+      `update licenses
+       set note = trim(both from coalesce(note, '') || E'\n' || $1)
+       where id = $2`,
+      [`Duplicate Stripe subscription ignored: ${subscription.id}`, duplicate.id],
     );
     return;
   }
