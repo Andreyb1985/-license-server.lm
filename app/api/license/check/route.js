@@ -27,12 +27,25 @@ export async function POST(request) {
     }
     if ((license.type === 'trial' || !ACTIVE_STATUSES.has(status)) && license.activated_machine_id === machineId) {
       const replacement = await query(
-        `select *
-         from licenses
-         where activated_machine_id = $1
-           and status in ('trialing','active','expiring_soon')
-           and type in ('subscription','lifetime','demo','internal')
-         order by created_at desc
+        `select l.*,
+                related_trial.trial_ends_at as related_trial_ends_at,
+                related_trial.license_key as related_trial_license_key
+         from licenses l
+         left join lateral (
+           select t.trial_ends_at, t.license_key
+           from licenses t
+           where t.id <> l.id
+             and t.type = 'trial'
+             and t.status = 'trialing'
+             and t.trial_ends_at > now()
+             and t.activated_machine_id = l.activated_machine_id
+           order by t.trial_ends_at desc, t.created_at desc
+           limit 1
+         ) related_trial on true
+         where l.activated_machine_id = $1
+           and l.status in ('trialing','active','expiring_soon')
+           and l.type in ('subscription','lifetime','demo','internal')
+         order by l.created_at desc
          limit 1`,
         [machineId],
       );

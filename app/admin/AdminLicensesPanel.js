@@ -57,9 +57,39 @@ function effectiveTrialEnd(license) {
   return license?.trial_ends_at || license?.related_trial_ends_at || null;
 }
 
+function addCalendarMonths(value, months) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  const day = date.getUTCDate();
+  const result = new Date(date);
+  result.setUTCDate(1);
+  result.setUTCMonth(result.getUTCMonth() + months);
+  const daysInTargetMonth = new Date(Date.UTC(result.getUTCFullYear(), result.getUTCMonth() + 1, 0)).getUTCDate();
+  result.setUTCDate(Math.min(day, daysInTargetMonth));
+  return result.toISOString();
+}
+
 function hasActiveTrialWindow(license) {
   const value = effectiveTrialEnd(license);
   return value && new Date(value).getTime() > Date.now();
+}
+
+function licenseAccessEndsAt(license) {
+  if (!license) return null;
+  if (license.access_ends_at) return license.access_ends_at;
+  const trialEndValue = effectiveTrialEnd(license);
+  const trialEnd = trialEndValue ? new Date(trialEndValue) : null;
+  const periodEnd = license.current_period_end ? new Date(license.current_period_end) : null;
+  const hasFutureTrial = trialEnd && Number.isFinite(trialEnd.getTime()) && trialEnd > new Date();
+  const hasPeriodEnd = periodEnd && Number.isFinite(periodEnd.getTime());
+  const hasPaidSubscription = ['active', 'expiring_soon'].includes(String(license.status || '').toLowerCase());
+
+  if (license.type === 'subscription' && hasFutureTrial && hasPaidSubscription) {
+    if (!hasPeriodEnd || periodEnd <= trialEnd) return addCalendarMonths(trialEnd.toISOString(), 1);
+    return periodEnd.toISOString();
+  }
+
+  return (hasPeriodEnd && periodEnd.toISOString()) || (hasFutureTrial && trialEnd.toISOString()) || null;
 }
 
 function trialSourceLabel(license) {
@@ -146,6 +176,7 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
   }), [items]);
 
   const selectedTrialEnd = effectiveTrialEnd(selected);
+  const selectedAccessEnd = licenseAccessEndsAt(selected);
 
   function replaceLicense(updated) {
     if (updated.status === 'deleted') {
@@ -263,7 +294,7 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                 <th>Firma</th>
                 <th>Machine ID</th>
                   <th>Trial bis</th>
-                  <th>Periode bis</th>
+                  <th>Lizenz bis</th>
               </tr>
             </thead>
             <tbody>
@@ -288,7 +319,7 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                   <td>{hasActiveTrialWindow(license) ? (
                     <span className="trial-pill">{fmtDate(effectiveTrialEnd(license))}</span>
                   ) : '-'}</td>
-                  <td>{fmtDate(license.current_period_end)}</td>
+                  <td><strong>{fmtDate(licenseAccessEndsAt(license))}</strong></td>
                 </tr>
               )) : (
                 <tr><td colSpan="9" className="empty">Keine passenden Lizenzen.</td></tr>
@@ -311,6 +342,7 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                 <div className="trial-banner">
                   Probezeit aktiv bis <strong>{fmtDate(selectedTrialEnd)}</strong>
                   {trialSourceLabel(selected) ? <span>{trialSourceLabel(selected)}</span> : null}
+                  <span>Lizenz gueltig bis {fmtDate(selectedAccessEnd)} inkl. bezahltem Monat.</span>
                 </div>
               ) : null}
 
@@ -377,7 +409,8 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                     <div><dt>Stripe Kunde</dt><dd><StripeLink id={selected.stripe_customer_id} type="customer" stripeMode={stripeMode}>{text(selected.stripe_customer_id)}</StripeLink></dd></div>
                     <div><dt>Subscription</dt><dd><StripeLink id={selected.stripe_subscription_id} type="subscription" stripeMode={stripeMode}>{text(selected.stripe_subscription_id)}</StripeLink></dd></div>
                     <div><dt>Probezeit</dt><dd>{selectedTrialEnd ? `${fmtDate(selectedTrialEnd)} ${trialSourceLabel(selected)}`.trim() : '-'}</dd></div>
-                    <div><dt>Periode bis</dt><dd>{fmtDate(selected.current_period_end)}</dd></div>
+                    <div><dt>Stripe Periode</dt><dd>{fmtDate(selected.current_period_end)}</dd></div>
+                    <div><dt>Lizenz gültig bis</dt><dd>{fmtDate(selectedAccessEnd)}</dd></div>
                     <div><dt>Letzte Pruefung</dt><dd>{fmtDate(selected.last_check_at)}</dd></div>
                     <div><dt>Erstellt</dt><dd>{fmtDate(selected.created_at)}</dd></div>
                   </dl>
