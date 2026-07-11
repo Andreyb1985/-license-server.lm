@@ -1,6 +1,7 @@
 import { query } from '../../lib/db.js';
 import { maskLicenseKey } from '../../lib/license.js';
 import AdminLicenseForm from './AdminLicenseForm.js';
+import AdminLicensesPanel from './AdminLicensesPanel.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +41,20 @@ function stripeBase() {
   return String(process.env.STRIPE_SECRET_KEY || '').startsWith('sk_test_')
     ? 'https://dashboard.stripe.com/test'
     : 'https://dashboard.stripe.com';
+}
+
+function stripeMode() {
+  return String(process.env.STRIPE_SECRET_KEY || '').startsWith('sk_test_') ? 'test' : 'live';
+}
+
+function serializeRows(rows) {
+  return rows.map((row) => {
+    const result = {};
+    for (const [key, value] of Object.entries(row)) {
+      result[key] = value instanceof Date ? value.toISOString() : value;
+    }
+    return result;
+  });
 }
 
 async function loadAdminData() {
@@ -213,28 +228,7 @@ export default async function AdminPage({ searchParams }) {
 
       <AdminLicenseForm adminSecret={secret} />
 
-      <section className="panel">
-        <div className="panel-head">
-          <h2>Lizenzen</h2>
-          <small>Letzte 200 Einträge</small>
-        </div>
-        <Table
-          rows={data.licenses}
-          columns={[
-            { key: 'status', label: 'Status', render: (row) => <span className={`badge ${statusClass(row.status)}`}>{text(row.status)}</span> },
-            { key: 'license_key', label: 'License Key', render: (row) => <code>{maskLicenseKey(row.license_key)}</code> },
-            { key: 'type', label: 'Typ' },
-            { key: 'plan', label: 'Plan' },
-            { key: 'email', label: 'E-Mail' },
-            { key: 'company_name', label: 'Firma' },
-            { key: 'activated_machine_id', label: 'Machine ID', render: (row) => <code>{text(row.activated_machine_id)}</code> },
-            { key: 'stripe_customer_id', label: 'Stripe Kunde', render: (row) => <StripeLink id={row.stripe_customer_id} type="customer">{text(row.stripe_customer_id)}</StripeLink> },
-            { key: 'stripe_subscription_id', label: 'Subscription', render: (row) => <StripeLink id={row.stripe_subscription_id} type="subscription">{text(row.stripe_subscription_id)}</StripeLink> },
-            { key: 'current_period_end', label: 'Periode bis', render: (row) => fmtDate(row.current_period_end || row.trial_ends_at) },
-            { key: 'created_at', label: 'Erstellt', render: (row) => fmtDate(row.created_at) },
-          ]}
-        />
-      </section>
+      <AdminLicensesPanel adminSecret={secret} licenses={serializeRows(data.licenses)} stripeMode={stripeMode()} />
 
       <section className="panel">
         <div className="panel-head">
@@ -315,6 +309,8 @@ export default async function AdminPage({ searchParams }) {
         <p>Manuelle Aktionen laufen weiterhin über geschützte API-Endpunkte mit Header <code>Authorization: Bearer ADMIN_SECRET</code>.</p>
         <div className="code-grid">
           <code>POST /api/admin/licenses/create</code>
+          <code>POST /api/admin/licenses/update</code>
+          <code>POST /api/admin/licenses/action</code>
           <code>POST /api/admin/licenses/trial</code>
           <code>POST /api/admin/licenses/revoke</code>
         </div>
@@ -370,6 +366,40 @@ const adminCss = `
   .trial-form input{height:42px;border:1px solid #dbe5ee;border-radius:10px;padding:0 12px;color:#0f172a;background:white;font:inherit;font-weight:700}
   .trial-form button{height:42px;border:0;border-radius:10px;background:#008357;color:white;font-weight:900;padding:0 16px;align-self:end}
   .trial-form button.danger{background:#dc2626}
+  .license-manager-panel{overflow:hidden}
+  .license-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .license-tools input,.license-tools select{height:40px;border:1px solid #dbe5ee;border-radius:10px;padding:0 12px;background:white;color:#0f172a;font:inherit;font-weight:800}
+  .license-tools input{width:min(420px,42vw)}
+  .license-admin-grid{display:grid;grid-template-columns:minmax(0,1fr) 430px;min-height:520px}
+  .license-table-wrap{border-right:1px solid #edf2f7;max-height:680px}
+  .license-table-wrap tr{cursor:pointer}
+  .license-table-wrap tbody tr:hover td{background:#f8fafc}
+  .license-table-wrap .selected-row td{background:#ecfdf5}
+  .license-table-wrap .selected-row:hover td{background:#dcfce7}
+  .license-detail{padding:18px;background:#fbfdff;min-width:0}
+  .detail-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:16px}
+  .detail-head small{display:block;color:#64748b;font-weight:900;margin-bottom:5px}
+  .detail-head h3{margin:0;font-size:20px}
+  .license-facts{display:grid;gap:0;margin:0 0 14px}
+  .license-facts div{display:grid;grid-template-columns:130px minmax(0,1fr);gap:12px;align-items:center;min-height:40px;border-bottom:1px solid #edf2f7}
+  .license-facts dt{color:#64748b;font-weight:800}
+  .license-facts dd{margin:0;font-weight:900;color:#334155;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .license-facts code{white-space:normal;word-break:break-all}
+  .license-note{white-space:pre-wrap;background:white;border:1px solid #edf2f7;border-radius:12px;padding:12px;color:#334155;line-height:1.45;max-height:160px;overflow:auto}
+  .detail-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .detail-actions button{min-height:40px;border:0;border-radius:10px;background:#008357;color:white;font-weight:900;padding:0 14px}
+  .detail-actions button:disabled{opacity:.45;cursor:not-allowed}
+  .detail-actions .ghost-button{background:white;color:#008357;border:1px solid #cce8db}
+  .detail-actions .danger-button{background:#dc2626;color:white}
+  .detail-actions .danger-button.soft{background:#fff1f2;color:#be123c;border:1px solid #fecdd3}
+  .edit-license-form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .edit-license-form label{display:grid;gap:7px;color:#334155;font-size:13px;font-weight:900}
+  .edit-license-form input,.edit-license-form select,.edit-license-form textarea{border:1px solid #dbe5ee;border-radius:10px;padding:0 12px;color:#0f172a;background:white;font:inherit;font-weight:700}
+  .edit-license-form input,.edit-license-form select{height:40px}
+  .edit-license-form textarea{padding-top:10px;resize:vertical}
+  .edit-license-form .wide{grid-column:1 / -1}
+  .compact{margin:14px 0 0}
+  .empty-detail{height:100%;display:grid;place-items:center;color:#64748b;font-weight:900}
   .grid.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
   .table-wrap{overflow:auto}
   table{width:100%;border-collapse:collapse;font-size:13px}
@@ -384,6 +414,7 @@ const adminCss = `
   .empty{height:60px;color:#64748b;text-align:center}
   .notice{padding:14px 16px;border-radius:12px;margin-bottom:16px;font-weight:800}.notice.bad{background:#fee2e2;color:#dc2626}
   .help{padding:18px}.help p{margin-top:8px;color:#64748b}.code-grid{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
-  @media (max-width:1100px){.metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.grid.two{grid-template-columns:1fr}.license-form{grid-template-columns:repeat(2,minmax(0,1fr))}.trial-form{grid-template-columns:1fr 1fr}}
-  @media (max-width:720px){.admin-shell{padding:18px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-header{align-items:flex-start;gap:12px;flex-direction:column}.license-form{grid-template-columns:1fr}.license-form .wide{grid-column:auto}.created-license{align-items:flex-start;flex-direction:column}.trial-form{grid-template-columns:1fr}}
+  @media (max-width:1240px){.license-admin-grid{grid-template-columns:1fr}.license-table-wrap{border-right:0;border-bottom:1px solid #edf2f7;max-height:460px}.license-detail{min-height:360px}}
+  @media (max-width:1100px){.metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.grid.two{grid-template-columns:1fr}.license-form{grid-template-columns:repeat(2,minmax(0,1fr))}.trial-form{grid-template-columns:1fr 1fr}.license-tools input{width:100%}}
+  @media (max-width:720px){.admin-shell{padding:18px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-header{align-items:flex-start;gap:12px;flex-direction:column}.license-form{grid-template-columns:1fr}.license-form .wide{grid-column:auto}.created-license{align-items:flex-start;flex-direction:column}.trial-form{grid-template-columns:1fr}.edit-license-form{grid-template-columns:1fr}.license-facts div{grid-template-columns:1fr;gap:4px;padding:8px 0}.license-tools{width:100%}.license-tools input,.license-tools select{width:100%}}
 `;
