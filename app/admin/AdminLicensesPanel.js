@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const ACTIVE_STATUSES = new Set(['trialing', 'active', 'expiring_soon']);
 const PROBLEM_STATUSES = new Set(['past_due', 'unpaid', 'expired', 'refunded', 'disputed', 'revoked', 'invalid', 'no_connection']);
@@ -89,6 +89,16 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
   const [busyAction, setBusyAction] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const nextItems = licenses || [];
+    setItems(nextItems);
+    setSelectedKey((currentKey) => (
+      currentKey && nextItems.some((license) => license.license_key === currentKey)
+        ? currentKey
+        : nextItems[0]?.license_key || ''
+    ));
+  }, [licenses]);
 
   const visibleItems = useMemo(() => {
     const needle = query.trim().toLowerCase();

@@ -1,8 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function AdminLicenseForm({ adminSecret }) {
+  const router = useRouter();
   const [licenseType, setLicenseType] = useState('lifetime');
   const [busy, setBusy] = useState(false);
   const [trialBusy, setTrialBusy] = useState(false);
@@ -42,6 +44,7 @@ export default function AdminLicenseForm({ adminSecret }) {
       setResult(data);
       formElement.reset();
       setLicenseType('lifetime');
+      router.refresh();
     } catch (err) {
       setError(err.message || 'Lizenz konnte nicht erstellt werden.');
     } finally {
