@@ -60,11 +60,27 @@ function serializeRows(rows) {
 async function loadAdminData() {
   const [licenses, customers, subscriptions, checks, duplicates] = await Promise.all([
     query(
-      `select id, license_key, type, status, plan, company_name, email, seats, activated_machine_id,
-              stripe_customer_id, stripe_subscription_id, trial_ends_at, current_period_end,
-              last_check_at, created_by, note, revoked_at, created_at, updated_at
-       from licenses
-       order by created_at desc
+      `select l.id, l.license_key, l.type, l.status, l.plan, l.company_name, l.email, l.seats, l.activated_machine_id,
+              l.stripe_customer_id, l.stripe_subscription_id, l.trial_ends_at, l.current_period_end,
+              related_trial.trial_ends_at as related_trial_ends_at,
+              related_trial.license_key as related_trial_license_key,
+              l.last_check_at, l.created_by, l.note, l.revoked_at, l.created_at, l.updated_at
+       from licenses l
+       left join lateral (
+         select t.trial_ends_at, t.license_key
+         from licenses t
+         where t.id <> l.id
+           and t.type = 'trial'
+           and t.status = 'trialing'
+           and t.trial_ends_at > now()
+           and (
+             (coalesce(l.activated_machine_id, '') <> '' and t.activated_machine_id = l.activated_machine_id)
+             or (coalesce(l.email, '') <> '' and lower(t.email) = lower(l.email))
+           )
+         order by t.trial_ends_at desc, t.created_at desc
+         limit 1
+       ) related_trial on true
+       order by l.created_at desc
        limit 200`,
     ),
     query(
@@ -385,6 +401,10 @@ const adminCss = `
   .license-facts dt{color:#64748b;font-weight:800}
   .license-facts dd{margin:0;font-weight:900;color:#334155;min-width:0;overflow:hidden;text-overflow:ellipsis}
   .license-facts code{white-space:normal;word-break:break-all}
+  .trial-pill{display:inline-flex;align-items:center;min-height:26px;border-radius:999px;background:#dcfce7;color:#008357;padding:0 9px;font-weight:900}
+  .trial-banner{border:1px solid #bbf7d0;background:#f0fdf4;color:#008357;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-weight:900;line-height:1.35}
+  .trial-banner strong{color:#0f172a}
+  .trial-banner span{display:block;color:#64748b;font-size:12px;margin-top:3px}
   .license-note{white-space:pre-wrap;background:white;border:1px solid #edf2f7;border-radius:12px;padding:12px;color:#334155;line-height:1.45;max-height:160px;overflow:auto}
   .detail-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
   .detail-actions button{min-height:40px;border:0;border-radius:10px;background:#008357;color:white;font-weight:900;padding:0 14px}

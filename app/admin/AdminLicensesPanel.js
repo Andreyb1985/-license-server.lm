@@ -53,6 +53,20 @@ function fmtDate(value) {
   }
 }
 
+function effectiveTrialEnd(license) {
+  return license?.trial_ends_at || license?.related_trial_ends_at || null;
+}
+
+function hasActiveTrialWindow(license) {
+  const value = effectiveTrialEnd(license);
+  return value && new Date(value).getTime() > Date.now();
+}
+
+function trialSourceLabel(license) {
+  if (!license?.related_trial_license_key) return '';
+  return `aus ${maskLicenseKey(license.related_trial_license_key)}`;
+}
+
 function statusClass(status) {
   const value = String(status || '').toLowerCase();
   if (ACTIVE_STATUSES.has(value)) return 'ok';
@@ -74,7 +88,7 @@ function matchesFilter(license, filter) {
   const status = String(license.status || '').toLowerCase();
   if (filter === 'active') return ACTIVE_STATUSES.has(status);
   if (filter === 'problem') return PROBLEM_STATUSES.has(status);
-  if (filter === 'trial') return license.type === 'trial' || status === 'trialing';
+  if (filter === 'trial') return license.type === 'trial' || status === 'trialing' || hasActiveTrialWindow(license);
   if (filter === 'stripe') return Boolean(license.stripe_subscription_id || license.stripe_customer_id);
   if (filter === 'manual') return !license.stripe_subscription_id;
   return true;
@@ -130,6 +144,8 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
     stripe: items.filter((license) => matchesFilter(license, 'stripe')).length,
     manual: items.filter((license) => matchesFilter(license, 'manual')).length,
   }), [items]);
+
+  const selectedTrialEnd = effectiveTrialEnd(selected);
 
   function replaceLicense(updated) {
     if (updated.status === 'deleted') {
@@ -246,7 +262,8 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                 <th>E-Mail</th>
                 <th>Firma</th>
                 <th>Machine ID</th>
-                <th>Periode bis</th>
+                  <th>Trial bis</th>
+                  <th>Periode bis</th>
               </tr>
             </thead>
             <tbody>
@@ -268,10 +285,13 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                   <td>{text(license.email)}</td>
                   <td>{text(license.company_name)}</td>
                   <td><code>{text(license.activated_machine_id)}</code></td>
-                  <td>{fmtDate(license.current_period_end || license.trial_ends_at)}</td>
+                  <td>{hasActiveTrialWindow(license) ? (
+                    <span className="trial-pill">{fmtDate(effectiveTrialEnd(license))}</span>
+                  ) : '-'}</td>
+                  <td>{fmtDate(license.current_period_end)}</td>
                 </tr>
               )) : (
-                <tr><td colSpan="8" className="empty">Keine passenden Lizenzen.</td></tr>
+                <tr><td colSpan="9" className="empty">Keine passenden Lizenzen.</td></tr>
               )}
             </tbody>
           </table>
@@ -287,6 +307,12 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                 </div>
                 <span className={`badge ${statusClass(selected.status)}`}>{text(selected.status)}</span>
               </div>
+              {hasActiveTrialWindow(selected) ? (
+                <div className="trial-banner">
+                  Probezeit aktiv bis <strong>{fmtDate(selectedTrialEnd)}</strong>
+                  {trialSourceLabel(selected) ? <span>{trialSourceLabel(selected)}</span> : null}
+                </div>
+              ) : null}
 
               {editing ? (
                 <form className="edit-license-form" onSubmit={saveLicense}>
@@ -350,7 +376,7 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                     <div><dt>Computer-ID</dt><dd><code>{text(selected.activated_machine_id)}</code></dd></div>
                     <div><dt>Stripe Kunde</dt><dd><StripeLink id={selected.stripe_customer_id} type="customer" stripeMode={stripeMode}>{text(selected.stripe_customer_id)}</StripeLink></dd></div>
                     <div><dt>Subscription</dt><dd><StripeLink id={selected.stripe_subscription_id} type="subscription" stripeMode={stripeMode}>{text(selected.stripe_subscription_id)}</StripeLink></dd></div>
-                    <div><dt>Trial bis</dt><dd>{fmtDate(selected.trial_ends_at)}</dd></div>
+                    <div><dt>Probezeit</dt><dd>{selectedTrialEnd ? `${fmtDate(selectedTrialEnd)} ${trialSourceLabel(selected)}`.trim() : '-'}</dd></div>
                     <div><dt>Periode bis</dt><dd>{fmtDate(selected.current_period_end)}</dd></div>
                     <div><dt>Letzte Pruefung</dt><dd>{fmtDate(selected.last_check_at)}</dd></div>
                     <div><dt>Erstellt</dt><dd>{fmtDate(selected.created_at)}</dd></div>
