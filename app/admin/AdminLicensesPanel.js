@@ -82,10 +82,17 @@ function licenseAccessEndsAt(license) {
   const periodEnd = license.current_period_end ? new Date(license.current_period_end) : null;
   const hasFutureTrial = trialEnd && Number.isFinite(trialEnd.getTime()) && trialEnd > new Date();
   const hasPeriodEnd = periodEnd && Number.isFinite(periodEnd.getTime());
-  const hasPaidSubscription = ['active', 'expiring_soon'].includes(String(license.status || '').toLowerCase());
+  const status = String(license.status || '').toLowerCase();
+  const hasStripeSubscription = Boolean(license.stripe_subscription_id);
+  const hasPaidSubscription = ['active', 'expiring_soon'].includes(status) || (status === 'trialing' && hasStripeSubscription);
 
   if (license.type === 'subscription' && hasFutureTrial && hasPaidSubscription) {
-    if (!hasPeriodEnd || periodEnd <= trialEnd) return addCalendarMonths(trialEnd.toISOString(), 1);
+    const trialPlusPaidMonth = addCalendarMonths(trialEnd.toISOString(), 1);
+    if (!hasPeriodEnd) return trialPlusPaidMonth;
+    const trialPlusPaidDate = trialPlusPaidMonth ? new Date(trialPlusPaidMonth) : null;
+    if (trialPlusPaidDate && Number.isFinite(trialPlusPaidDate.getTime()) && trialPlusPaidDate > periodEnd) {
+      return trialPlusPaidDate.toISOString();
+    }
     return periodEnd.toISOString();
   }
 
