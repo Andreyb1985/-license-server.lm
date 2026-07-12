@@ -16,8 +16,10 @@ export async function POST(request) {
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
     if (!priceId) throw new Error('STRIPE_PRICE_ID is not configured.');
     if (!siteUrl) throw new Error('NEXT_PUBLIC_SITE_URL is not configured.');
-    const email = String(body.email || '').trim();
-    const companyName = String(body.company_name || '').trim();
+    const email = String(body.licensee_email || body.email || '').trim();
+    const companyName = String(body.licensee_name || body.company_name || '').trim();
+    const licenseeAddress = String(body.licensee_address || '').trim();
+    const licenseeCompanyNumber = String(body.licensee_company_number || '').trim();
     const machineId = String(body.machine_id || '').trim();
 
     const existingLicense = await findBillableSubscriptionLicense({ machineId, email });
@@ -32,7 +34,7 @@ export async function POST(request) {
 
     const existingTrial = await findActiveTrialLicense({ machineId, email });
     const preservedTrialEnd = trialEndUnix(existingTrial);
-    const idempotencySource = machineId || email;
+    const idempotencySource = [machineId, email, companyName, licenseeAddress, licenseeCompanyNumber].join(':');
     const idempotencyKey = idempotencySource
       ? `lohnmail-checkout-${crypto.createHash('sha256').update(`${priceId}:${idempotencySource}`).digest('hex')}`
       : undefined;
@@ -47,6 +49,10 @@ export async function POST(request) {
       metadata: {
         app: 'lohnmail',
         company_name: companyName,
+        licensee_name: companyName,
+        licensee_email: email,
+        licensee_address: licenseeAddress,
+        licensee_company_number: licenseeCompanyNumber,
         machine_id: machineId,
         previous_trial_license_id: existingTrial?.id || '',
         previous_trial_ends_at: existingTrial?.trial_ends_at || '',
@@ -56,6 +62,10 @@ export async function POST(request) {
         metadata: {
           app: 'lohnmail',
           company_name: companyName,
+          licensee_name: companyName,
+          licensee_email: email,
+          licensee_address: licenseeAddress,
+          licensee_company_number: licenseeCompanyNumber,
           machine_id: machineId,
           email,
           previous_trial_license_id: existingTrial?.id || '',

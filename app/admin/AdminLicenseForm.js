@@ -109,6 +109,10 @@ export default function AdminLicenseForm({ adminSecret }) {
           <input name="email" type="email" placeholder="kunde@example.com" />
         </label>
         <label>
+          Unternehmensnummer
+          <input name="licensee_company_number" placeholder="Steuer-/HR-/USt-ID" />
+        </label>
+        <label>
           Lizenztyp
           <select name="type" value={licenseType} onChange={(event) => setLicenseType(event.target.value)}>
             <option value="trial">Trial</option>
@@ -139,6 +143,10 @@ export default function AdminLicenseForm({ adminSecret }) {
         <label>
           Computer-ID
           <input name="machine_id" placeholder="Optional, sonst bei Aktivierung" />
+        </label>
+        <label className="wide">
+          Anschrift
+          <input name="licensee_address" placeholder="Straße, PLZ Ort, Land" />
         </label>
         <label className="wide">
           Notiz

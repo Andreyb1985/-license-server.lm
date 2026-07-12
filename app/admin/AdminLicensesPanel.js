@@ -160,6 +160,8 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
         license.license_key,
         license.email,
         license.company_name,
+        license.licensee_address,
+        license.licensee_company_number,
         license.activated_machine_id,
         license.plan,
         license.status,
@@ -364,6 +366,10 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                     <input name="email" type="email" defaultValue={selected.email || ''} />
                   </label>
                   <label>
+                    Unternehmensnummer
+                    <input name="licensee_company_number" defaultValue={selected.licensee_company_number || ''} />
+                  </label>
+                  <label>
                     Typ
                     <select name="type" defaultValue={selected.type || 'subscription'}>
                       {TYPE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
@@ -396,6 +402,10 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                     <input name="current_period_end" type="date" defaultValue={dateValue(selected.current_period_end)} />
                   </label>
                   <label className="wide">
+                    Anschrift
+                    <input name="licensee_address" defaultValue={selected.licensee_address || ''} />
+                  </label>
+                  <label className="wide">
                     Notiz
                     <textarea name="note" rows="4" defaultValue={selected.note || ''} />
                   </label>
@@ -410,6 +420,8 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                     <div><dt>License Key</dt><dd><code>{selected.license_key}</code></dd></div>
                     <div><dt>Firma</dt><dd>{text(selected.company_name)}</dd></div>
                     <div><dt>E-Mail</dt><dd>{text(selected.email)}</dd></div>
+                    <div><dt>Anschrift</dt><dd>{text(selected.licensee_address)}</dd></div>
+                    <div><dt>Unternehmensnr.</dt><dd>{text(selected.licensee_company_number)}</dd></div>
                     <div><dt>Typ / Plan</dt><dd>{text(selected.type)} / {text(selected.plan)}</dd></div>
                     <div><dt>Seats</dt><dd>{selected.seats || 1}</dd></div>
                     <div><dt>Computer-ID</dt><dd><code>{text(selected.activated_machine_id)}</code></dd></div>

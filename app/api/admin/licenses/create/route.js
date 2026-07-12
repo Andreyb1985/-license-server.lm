@@ -13,6 +13,8 @@ export async function POST(request) {
 
     const companyName = String(body.company_name || '').trim();
     const email = String(body.email || '').trim().toLowerCase();
+    const licenseeAddress = String(body.licensee_address || '').trim();
+    const licenseeCompanyNumber = String(body.licensee_company_number || '').trim();
     const seats = Math.max(1, Math.min(999, Number(body.seats || 1)));
     const expiresAt = String(body.expires_at || '').trim() || null;
     const defaultTrialEnd = new Date(Date.now() + 60 * 86400000).toISOString();
@@ -32,13 +34,17 @@ export async function POST(request) {
         if (existing.rows[0]) {
           customerId = existing.rows[0].id;
           await client.query(
-            `update customers set company_name = coalesce(nullif($1, ''), company_name) where id = $2`,
-            [companyName, customerId],
+            `update customers
+             set company_name = coalesce(nullif($1, ''), company_name),
+                 licensee_address = coalesce(nullif($2, ''), licensee_address),
+                 licensee_company_number = coalesce(nullif($3, ''), licensee_company_number)
+             where id = $4`,
+            [companyName, licenseeAddress, licenseeCompanyNumber, customerId],
           );
         } else {
           const created = await client.query(
-            `insert into customers (email, company_name) values ($1, $2) returning id`,
-            [email, companyName],
+            `insert into customers (email, company_name, licensee_address, licensee_company_number) values ($1, $2, $3, $4) returning id`,
+            [email, companyName, licenseeAddress || null, licenseeCompanyNumber || null],
           );
           customerId = created.rows[0].id;
         }
@@ -50,6 +56,8 @@ export async function POST(request) {
         status: type === 'trial' ? 'trialing' : 'active',
         plan,
         company_name: companyName,
+        licensee_address: licenseeAddress || null,
+        licensee_company_number: licenseeCompanyNumber || null,
         email: email || null,
         seats,
         activated_machine_id: body.machine_id || null,

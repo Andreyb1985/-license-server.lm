@@ -55,6 +55,8 @@ function adminLicenseResponse(row, message) {
     last_check_at: row.last_check_at,
     created_by: row.created_by,
     note: row.note,
+    licensee_address: row.licensee_address,
+    licensee_company_number: row.licensee_company_number,
     revoked_at: row.revoked_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -76,6 +78,8 @@ export async function POST(request) {
 
     const email = cleanEmail(body.email);
     const companyName = cleanText(body.company_name);
+    const licenseeAddress = cleanText(body.licensee_address);
+    const licenseeCompanyNumber = cleanText(body.licensee_company_number);
     const plan = cleanText(body.plan) || 'Professional';
     const machineId = cleanText(body.activated_machine_id);
     const note = cleanText(body.note);
@@ -88,9 +92,11 @@ export async function POST(request) {
         await client.query(
           `update customers
            set email = coalesce($1, email),
-               company_name = coalesce($2, company_name)
-           where id = $3`,
-          [email, companyName, license.customer_id],
+               company_name = coalesce($2, company_name),
+               licensee_address = coalesce($3, licensee_address),
+               licensee_company_number = coalesce($4, licensee_company_number)
+           where id = $5`,
+          [email, companyName, licenseeAddress, licenseeCompanyNumber, license.customer_id],
         );
       }
 
@@ -101,17 +107,19 @@ export async function POST(request) {
              plan = $3,
              company_name = $4,
              email = $5,
-             seats = $6,
-             activated_machine_id = $7,
-             trial_ends_at = $8,
-             current_period_end = $9,
-             note = $10,
+             licensee_address = $6,
+             licensee_company_number = $7,
+             seats = $8,
+             activated_machine_id = $9,
+             trial_ends_at = $10,
+             current_period_end = $11,
+             note = $12,
              revoked_at = case
                when $2 = 'revoked' and revoked_at is null then now()
                when $2 <> 'revoked' then null
                else revoked_at
              end
-         where id = $11
+         where id = $13
          returning *`,
         [
           type,
@@ -119,6 +127,8 @@ export async function POST(request) {
           plan,
           companyName,
           email,
+          licenseeAddress,
+          licenseeCompanyNumber,
           seats,
           machineId,
           trialEndsAt,

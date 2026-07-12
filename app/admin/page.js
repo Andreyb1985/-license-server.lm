@@ -60,7 +60,8 @@ function serializeRows(rows) {
 async function loadAdminData() {
   const [licenses, customers, subscriptions, checks, duplicates] = await Promise.all([
     query(
-      `select l.id, l.license_key, l.type, l.status, l.plan, l.company_name, l.email, l.seats, l.activated_machine_id,
+      `select l.id, l.license_key, l.type, l.status, l.plan, l.company_name, l.email,
+              l.licensee_address, l.licensee_company_number, l.seats, l.activated_machine_id,
               l.stripe_customer_id, l.stripe_subscription_id, l.trial_ends_at, l.current_period_end,
               related_trial.trial_ends_at as related_trial_ends_at,
               related_trial.license_key as related_trial_license_key,
@@ -84,7 +85,7 @@ async function loadAdminData() {
        limit 200`,
     ),
     query(
-      `select c.id, c.email, c.company_name, c.stripe_customer_id, c.created_at, c.updated_at,
+      `select c.id, c.email, c.company_name, c.licensee_address, c.licensee_company_number, c.stripe_customer_id, c.created_at, c.updated_at,
               count(l.id) as license_count,
               count(l.id) filter (where l.status in ('trialing','active','expiring_soon')) as active_license_count
        from customers c
