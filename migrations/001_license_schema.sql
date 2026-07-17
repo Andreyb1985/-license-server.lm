@@ -4,6 +4,8 @@ create table if not exists customers (
   id uuid primary key default gen_random_uuid(),
   email text,
   company_name text,
+  licensee_address text,
+  licensee_company_number text,
   stripe_customer_id text unique,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -34,6 +36,8 @@ create table if not exists licenses (
   plan text,
   company_name text,
   email text,
+  licensee_address text,
+  licensee_company_number text,
   seats integer not null default 1,
   activated_machine_id text,
   stripe_customer_id text,

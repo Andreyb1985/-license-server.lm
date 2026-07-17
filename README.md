@@ -26,7 +26,12 @@ Use Supabase or Neon Postgres and run:
 
 ```bash
 psql "$DATABASE_URL" -f migrations/001_license_schema.sql
+psql "$DATABASE_URL" -f migrations/002_licensee_fields.sql
 ```
+
+Migration `002_licensee_fields.sql` is required for databases created before
+license-holder address and company-number fields were introduced. It is
+idempotent and can safely be run more than once.
 
 Tables:
 
