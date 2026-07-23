@@ -97,6 +97,7 @@ async function loadAdminData() {
     query(
       `select s.id, s.stripe_subscription_id, s.status, s.price_id, s.current_period_start,
               s.current_period_end, s.cancel_at_period_end, s.canceled_at, s.created_at,
+              s.collection_method, s.days_until_due, s.latest_invoice_status, s.latest_invoice_due_at,
               c.email, c.company_name, c.stripe_customer_id
        from subscriptions s
        left join customers c on c.id = s.customer_id
@@ -296,6 +297,9 @@ export default async function AdminPage({ searchParams }) {
               { key: 'stripe_subscription_id', label: 'Subscription', render: (row) => <StripeLink id={row.stripe_subscription_id} type="subscription">{text(row.stripe_subscription_id)}</StripeLink> },
               { key: 'email', label: 'E-Mail' },
               { key: 'company_name', label: 'Firma' },
+              { key: 'collection_method', label: 'Zahlung', render: (row) => row.collection_method === 'send_invoice' ? 'Rechnung' : 'Automatisch' },
+              { key: 'latest_invoice_status', label: 'Invoice' },
+              { key: 'latest_invoice_due_at', label: 'Fällig', render: (row) => fmtDate(row.latest_invoice_due_at) },
               { key: 'current_period_end', label: 'Bis', render: (row) => fmtDate(row.current_period_end) },
               { key: 'cancel_at_period_end', label: 'Kündigt', render: (row) => row.cancel_at_period_end ? 'Ja' : 'Nein' },
             ]}

@@ -2,6 +2,11 @@ import { json } from '../../../../lib/http.js';
 import { query, withTransaction } from '../../../../lib/db.js';
 import { getStripe } from '../../../../lib/stripe.js';
 import { findActiveTrialLicense, findBillableSubscriptionLicense, insertLicense, stripeStatusToLicenseStatus } from '../../../../lib/license.js';
+import {
+  invoiceDueAt,
+  invoiceLicenseStatus,
+  stripeSubscriptionId,
+} from '../../../../lib/invoice.js';
 
 function fromUnix(value) {
   return value ? new Date(value * 1000).toISOString() : null;
@@ -26,12 +31,13 @@ async function upsertSubscription(client, customer, subscription) {
   const result = await client.query(
     `insert into subscriptions (
       customer_id, stripe_subscription_id, status, price_id, trial_end, current_period_start,
-      current_period_end, cancel_at_period_end, canceled_at
-    ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      current_period_end, cancel_at_period_end, canceled_at, collection_method, days_until_due
+    ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
     on conflict (stripe_subscription_id)
     do update set status = excluded.status, price_id = excluded.price_id, trial_end = excluded.trial_end,
       current_period_start = excluded.current_period_start, current_period_end = excluded.current_period_end,
-      cancel_at_period_end = excluded.cancel_at_period_end, canceled_at = excluded.canceled_at
+      cancel_at_period_end = excluded.cancel_at_period_end, canceled_at = excluded.canceled_at,
+      collection_method = excluded.collection_method, days_until_due = excluded.days_until_due
     returning *`,
     [
       customer?.id || null,
@@ -43,6 +49,8 @@ async function upsertSubscription(client, customer, subscription) {
       fromUnix(subscription.current_period_end),
       !!subscription.cancel_at_period_end,
       fromUnix(subscription.canceled_at),
+      subscription.collection_method || null,
+      subscription.days_until_due || null,
     ],
   );
   return result.rows[0];
@@ -155,6 +163,34 @@ async function markLicenseBySubscription(subscriptionId, status, currentPeriodEn
   );
 }
 
+async function handleInvoice(invoice) {
+  const subscriptionId = stripeSubscriptionId(invoice.subscription);
+  if (!subscriptionId) return;
+
+  await query(
+    `update subscriptions
+     set latest_invoice_id = $1,
+         latest_invoice_status = $2,
+         latest_invoice_due_at = $3
+     where stripe_subscription_id = $4`,
+    [
+      invoice.id || null,
+      invoice.status || null,
+      invoiceDueAt(invoice),
+      subscriptionId,
+    ],
+  );
+
+  const nextStatus = invoiceLicenseStatus(invoice);
+  if (nextStatus) {
+    await markLicenseBySubscription(
+      subscriptionId,
+      nextStatus,
+      fromUnix(invoice.lines?.data?.[0]?.period?.end),
+    );
+  }
+}
+
 export async function POST(request) {
   const signature = request.headers.get('stripe-signature');
   const payload = await request.text();
@@ -180,18 +216,34 @@ export async function POST(request) {
         await markLicenseBySubscription(object.id, object.current_period_end && object.current_period_end * 1000 > Date.now() ? 'canceled' : 'expired', fromUnix(object.current_period_end));
         break;
       case 'invoice.payment_succeeded':
+      case 'invoice.paid':
         if (object.subscription) {
-          const subscription = await getStripe().subscriptions.retrieve(object.subscription);
+          const subscriptionId = stripeSubscriptionId(object.subscription);
+          const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
           await handleSubscription(subscription);
-          await markLicenseBySubscription(object.subscription, stripeStatusToLicenseStatus(subscription.status), fromUnix(object.lines?.data?.[0]?.period?.end));
+          await handleInvoice(object);
+          await markLicenseBySubscription(
+            subscriptionId,
+            'active',
+            fromUnix(object.lines?.data?.[0]?.period?.end),
+          );
         }
         break;
       case 'invoice.payment_failed':
         if (object.subscription) {
-          const subscription = await getStripe().subscriptions.retrieve(object.subscription);
+          const subscriptionId = stripeSubscriptionId(object.subscription);
+          const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
           await handleSubscription(subscription);
-          await markLicenseBySubscription(object.subscription, 'past_due');
+          await handleInvoice(object);
+          await markLicenseBySubscription(subscriptionId, 'past_due');
         }
+        break;
+      case 'invoice.finalized':
+      case 'invoice.sent':
+      case 'invoice.updated':
+      case 'invoice.marked_uncollectible':
+      case 'invoice.voided':
+        await handleInvoice(object);
         break;
       case 'refund.created':
       case 'charge.refunded':

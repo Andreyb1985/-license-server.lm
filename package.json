@@ -7,6 +7,7 @@
     "dev": "node --env-file=local.env ./node_modules/next/dist/bin/next dev",
     "build": "next build",
     "start": "next start",
+    "test": "node --test",
     "license:create": "node --env-file=local.env scripts/create-license.js",
     "license:revoke": "node --env-file=local.env scripts/revoke-license.js"
   },

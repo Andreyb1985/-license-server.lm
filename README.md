@@ -11,6 +11,7 @@ Create `local.env` locally and configure the same variables in Vercel.
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 STRIPE_PRICE_ID=price_...
+CRON_SECRET=replace-with-a-long-random-value
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 DATABASE_URL=postgres://...
 LICENSE_SECRET=change-me-long-random-secret
@@ -27,6 +28,7 @@ Use Supabase or Neon Postgres and run:
 ```bash
 psql "$DATABASE_URL" -f migrations/001_license_schema.sql
 psql "$DATABASE_URL" -f migrations/002_licensee_fields.sql
+psql "$DATABASE_URL" -f migrations/003_invoice_billing.sql
 ```
 
 Migration `002_licensee_fields.sql` is required for databases created before
@@ -57,11 +59,30 @@ and sends it to `/api/license/check`; it never creates valid keys.
    - `customer.subscription.updated`
    - `customer.subscription.deleted`
    - `invoice.payment_succeeded`
+   - `invoice.paid`
    - `invoice.payment_failed`
+   - `invoice.finalized`
+   - `invoice.sent`
+   - `invoice.updated`
+   - `invoice.marked_uncollectible`
+   - `invoice.voided`
    - `charge.refunded`
    - `refund.created`
    - `charge.dispute.created`
    - `charge.dispute.closed`
+
+### Payment methods
+
+- Card payments use `/api/stripe/create-checkout-session` and Stripe Checkout.
+- Invoice payments use `/api/stripe/create-invoice-subscription`.
+- Invoice subscriptions use `send_invoice`, Stripe Customer Balance bank transfers,
+  and 14 days until due.
+- Enable Bank Transfers in Stripe Dashboard before using invoice payments. Stripe
+  then includes the customer's virtual bank details on the invoice and reconciles
+  incoming transfers with the open invoice.
+- Stripe must be configured to send finalized invoices and payment reminders.
+- The Vercel cron `/api/cron/reconcile-invoices` runs daily and marks open,
+  overdue invoice licenses as `past_due`. Configure `CRON_SECRET` in Vercel.
 
 ## Local Run
 
@@ -124,8 +145,8 @@ actions when the last successful online check is older than seven days:
 
 If the server is temporarily unavailable, subscription licenses keep a 7-day
 offline grace period. Lifetime and internal licenses keep a 30-day offline grace
-period. Revoked, expired, refunded, disputed, unpaid and invalid licenses are
-blocked.
+period. Past-due, revoked, expired, refunded, disputed, unpaid and invalid
+licenses are blocked.
 
 ## Vercel Deploy
 
