@@ -1,6 +1,8 @@
 import { json, readJson } from '../../../../lib/http.js';
 import { query, withTransaction } from '../../../../lib/db.js';
 import { ACTIVE_STATUSES, findLicenseByKey, logLicenseCheck, publicLicenseResponse } from '../../../../lib/license.js';
+import { getStripe } from '../../../../lib/stripe.js';
+import { inspectStripeSubscription } from '../../../../lib/subscription-access.js';
 
 function cleanText(value, maxLength) {
   const normalized = String(value || '').trim();
@@ -60,6 +62,63 @@ async function updateLicensee(license, body) {
   });
 }
 
+async function reconcileInvoiceLicense(license) {
+  if (license.type !== 'subscription' || !license.stripe_subscription_id) {
+    return license;
+  }
+
+  try {
+    const paymentState = await inspectStripeSubscription(
+      getStripe(),
+      license.stripe_subscription_id,
+      { currentLicenseStatus: license.status },
+    );
+    if (paymentState.subscription.collection_method !== 'send_invoice') {
+      return license;
+    }
+
+    await withTransaction(async (client) => {
+      await client.query(
+        `update subscriptions
+         set status = $1,
+             current_period_end = $2,
+             latest_invoice_id = $3,
+             latest_invoice_status = $4,
+             latest_invoice_due_at = $5
+         where stripe_subscription_id = $6`,
+        [
+          paymentState.subscription.status,
+          paymentState.currentPeriodEnd,
+          paymentState.latestInvoiceId,
+          paymentState.latestInvoiceStatus,
+          paymentState.latestInvoiceDueAt,
+          license.stripe_subscription_id,
+        ],
+      );
+      await client.query(
+        `update licenses
+         set status = $1,
+             current_period_end = $2
+         where id = $3
+           and status <> 'revoked'`,
+        [
+          paymentState.licenseStatus,
+          paymentState.currentPeriodEnd,
+          license.id,
+        ],
+      );
+    });
+
+    return findLicenseByKey(license.license_key);
+  } catch (error) {
+    console.error(
+      `[license-check] Stripe reconciliation failed for ${license.stripe_subscription_id}:`,
+      error,
+    );
+    return license;
+  }
+}
+
 export async function POST(request) {
   const body = await readJson(request);
   const action = String(body.action || '').trim();
@@ -70,11 +129,12 @@ export async function POST(request) {
   try {
     if (!licenseKey) throw new Error('license_key is required.');
     if (!machineId) throw new Error('machine_id is required.');
-    const license = await findLicenseByKey(licenseKey);
+    let license = await findLicenseByKey(licenseKey);
     if (!license) {
       await logLicenseCheck({ licenseKey, machineId, status: 'invalid', request, appVersion });
       return json({ status: 'invalid', type: 'invalid', active: false, message: 'License not found' }, 404);
     }
+    license = await reconcileInvoiceLicense(license);
 
     if (action === 'update_licensee') {
       if (!license.activated_machine_id || license.activated_machine_id !== machineId) {

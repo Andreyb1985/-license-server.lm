@@ -1,12 +1,13 @@
 import { json } from '../../../../lib/http.js';
 import { query, withTransaction } from '../../../../lib/db.js';
 import { getStripe } from '../../../../lib/stripe.js';
-import { findActiveTrialLicense, findBillableSubscriptionLicense, insertLicense, stripeStatusToLicenseStatus } from '../../../../lib/license.js';
+import { findActiveTrialLicense, findBillableSubscriptionLicense, insertLicense } from '../../../../lib/license.js';
 import {
   invoiceDueAt,
   invoiceLicenseStatus,
   stripeSubscriptionId,
 } from '../../../../lib/invoice.js';
+import { inspectStripeSubscription } from '../../../../lib/subscription-access.js';
 
 function fromUnix(value) {
   return value ? new Date(value * 1000).toISOString() : null;
@@ -56,9 +57,19 @@ async function upsertSubscription(client, customer, subscription) {
   return result.rows[0];
 }
 
-async function ensureSubscriptionLicense(client, customer, subscription, email, companyName, machineId, licenseeAddress, licenseeCompanyNumber) {
+async function ensureSubscriptionLicense(
+  client,
+  customer,
+  subscription,
+  licenseStatus,
+  email,
+  companyName,
+  machineId,
+  licenseeAddress,
+  licenseeCompanyNumber,
+) {
   const existing = await client.query(`select * from licenses where stripe_subscription_id = $1 limit 1`, [subscription.id]);
-  const status = stripeStatusToLicenseStatus(subscription.status);
+  const status = existing.rows[0]?.status === 'revoked' ? 'revoked' : licenseStatus;
   const previousTrialId = subscription.metadata?.previous_trial_license_id || '';
   const previousTrial = previousTrialId
     ? (await client.query(`select * from licenses where id = $1 and type = 'trial' limit 1`, [previousTrialId])).rows[0]
@@ -130,17 +141,50 @@ async function ensureSubscriptionLicense(client, customer, subscription, email, 
 }
 
 async function handleSubscription(subscription, fallbackMetadata = {}) {
+  const stripe = getStripe();
   const stripeCustomerId = String(subscription.customer || '');
-  const customerObject = await getStripe().customers.retrieve(stripeCustomerId);
+  const customerObject = await stripe.customers.retrieve(stripeCustomerId);
   const email = customerObject.email || subscription.metadata?.email || fallbackMetadata.email || null;
   const companyName = subscription.metadata?.licensee_name || subscription.metadata?.company_name || fallbackMetadata.company_name || customerObject.metadata?.company_name || null;
   const licenseeAddress = subscription.metadata?.licensee_address || fallbackMetadata.licensee_address || customerObject.metadata?.licensee_address || null;
   const licenseeCompanyNumber = subscription.metadata?.licensee_company_number || fallbackMetadata.licensee_company_number || customerObject.metadata?.licensee_company_number || null;
   const machineId = subscription.metadata?.machine_id || fallbackMetadata.machine_id || null;
+  const existingLicense = await query(
+    `select status from licenses where stripe_subscription_id = $1 limit 1`,
+    [subscription.id],
+  );
+  const paymentState = await inspectStripeSubscription(stripe, subscription, {
+    currentLicenseStatus: existingLicense.rows[0]?.status || '',
+  });
   await withTransaction(async (client) => {
     const customer = await upsertCustomer(client, { email, companyName, stripeCustomerId, licenseeAddress, licenseeCompanyNumber });
     await upsertSubscription(client, customer, subscription);
-    await ensureSubscriptionLicense(client, customer, subscription, email, companyName, machineId, licenseeAddress, licenseeCompanyNumber);
+    await ensureSubscriptionLicense(
+      client,
+      customer,
+      subscription,
+      paymentState.licenseStatus,
+      email,
+      companyName,
+      machineId,
+      licenseeAddress,
+      licenseeCompanyNumber,
+    );
+    if (paymentState.latestInvoice) {
+      await client.query(
+        `update subscriptions
+         set latest_invoice_id = $1,
+             latest_invoice_status = $2,
+             latest_invoice_due_at = $3
+         where stripe_subscription_id = $4`,
+        [
+          paymentState.latestInvoiceId,
+          paymentState.latestInvoiceStatus,
+          paymentState.latestInvoiceDueAt,
+          subscription.id,
+        ],
+      );
+    }
   });
 }
 
@@ -158,7 +202,11 @@ async function handleCheckoutSession(session) {
 
 async function markLicenseBySubscription(subscriptionId, status, currentPeriodEnd = null) {
   await query(
-    `update licenses set status = $1, current_period_end = coalesce($2, current_period_end) where stripe_subscription_id = $3`,
+    `update licenses
+     set status = $1,
+         current_period_end = coalesce($2, current_period_end)
+     where stripe_subscription_id = $3
+       and status <> 'revoked'`,
     [status, currentPeriodEnd, subscriptionId],
   );
 }
@@ -181,7 +229,17 @@ async function handleInvoice(invoice) {
     ],
   );
 
-  const nextStatus = invoiceLicenseStatus(invoice);
+  const paidInvoices =
+    String(invoice.status || '').toLowerCase() === 'paid'
+      ? { data: [invoice] }
+      : await getStripe().invoices.list({
+          subscription: subscriptionId,
+          status: 'paid',
+          limit: 1,
+        });
+  const nextStatus = invoiceLicenseStatus(invoice, Date.now(), {
+    hasPaidSubscriptionInvoice: paidInvoices.data.length > 0,
+  });
   if (nextStatus) {
     await markLicenseBySubscription(
       subscriptionId,
@@ -261,7 +319,10 @@ export async function POST(request) {
           await query(
             `update licenses l set status = 'active'
              from subscriptions s
-             where l.stripe_subscription_id = s.stripe_subscription_id and s.status = 'active' and l.stripe_customer_id = $1`,
+             where l.stripe_subscription_id = s.stripe_subscription_id
+               and s.status = 'active'
+               and l.stripe_customer_id = $1
+               and l.status <> 'revoked'`,
             [object.customer],
           );
         }
