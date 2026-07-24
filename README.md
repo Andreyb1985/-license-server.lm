@@ -16,10 +16,26 @@ NEXT_PUBLIC_SITE_URL=http://localhost:3000
 DATABASE_URL=postgres://...
 LICENSE_SECRET=change-me-long-random-secret
 ADMIN_SECRET=change-me-admin-secret
+LOHNMAIL_INSTALLER_URL=https://lohn-mail.de/downloads/LohnMail-macOS.dmg
 ```
 
 Never expose `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `DATABASE_URL`,
 `LICENSE_SECRET` or `ADMIN_SECRET` to the frontend or desktop app.
+
+## Desktop installer download
+
+The `Kostenlos herunterladen` button opens `/api/download`. This route redirects
+to the public HTTPS address configured in `LOHNMAIL_INSTALLER_URL`.
+
+1. Build and sign the LohnMail desktop installer.
+2. Upload it to a stable public location, for example the LohnMail website,
+   Vercel Blob, or a GitHub Release.
+3. Add `LOHNMAIL_INSTALLER_URL` in the Vercel project under
+   `Settings > Environment Variables`.
+4. Redeploy the production deployment.
+
+If the variable is missing or invalid, the route returns a user-friendly
+maintenance page instead of a placeholder JSON response.
 
 ## Database
 
