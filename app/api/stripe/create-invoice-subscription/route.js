@@ -8,6 +8,7 @@ import {
 } from '../../../../lib/license.js';
 
 const INVOICE_DAYS_UNTIL_DUE = 14;
+const INVOICE_PAYMENT_METHODS = ['card', 'customer_balance'];
 
 function trialEndUnix(trialLicense) {
   if (!trialLicense?.trial_ends_at) return null;
@@ -64,6 +65,63 @@ async function findOrCreateCustomer(stripe, { email, companyName, address, compa
   });
 }
 
+async function existingInvoiceResponse(stripe, license) {
+  const subscriptionId = String(license?.stripe_subscription_id || '').trim();
+  if (!subscriptionId) return null;
+
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+    expand: ['latest_invoice'],
+  });
+  if (subscription.collection_method !== 'send_invoice') {
+    return {
+      ok: true,
+      already_active: true,
+      message:
+        'Für diese Installation ist bereits eine Kartenzahlung eingerichtet. Die Zahlungsart kann im Kundenportal geändert werden.',
+      license: publicLicenseResponse(license, 'Card subscription already active'),
+    };
+  }
+
+  await stripe.subscriptions.update(subscription.id, {
+    payment_settings: {
+      payment_method_types: INVOICE_PAYMENT_METHODS,
+    },
+  });
+
+  const latestInvoice =
+    subscription.latest_invoice && typeof subscription.latest_invoice !== 'string'
+      ? subscription.latest_invoice
+      : null;
+  if (latestInvoice?.status === 'open') {
+    const invoice = await stripe.invoices.update(latestInvoice.id, {
+      payment_settings: {
+        payment_method_types: INVOICE_PAYMENT_METHODS,
+      },
+    });
+    if (invoice.hosted_invoice_url) {
+      return {
+        ok: true,
+        existing_invoice: true,
+        billing_method: 'invoice',
+        subscription_id: subscription.id,
+        invoice_url: invoice.hosted_invoice_url,
+        message: 'Die offene Rechnung wurde geöffnet.',
+        license: publicLicenseResponse(license, 'Open invoice available'),
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    already_active: true,
+    message:
+      subscription.status === 'trialing'
+        ? 'Rechnungszahlung ist bereits eingerichtet. Die erste Rechnung wird zum Ende der Testphase erstellt.'
+        : 'Rechnungszahlung ist bereits eingerichtet. Aktuell ist keine offene Rechnung vorhanden.',
+    license: publicLicenseResponse(license, 'Invoice subscription already configured'),
+  };
+}
+
 export async function POST(request) {
   try {
     const body = await readJson(request);
@@ -80,20 +138,22 @@ export async function POST(request) {
     const companyNumber = optionalText(body.licensee_company_number, 120);
     const machineId = optionalText(body.machine_id, 200);
 
+    const stripe = getStripe();
     const existingLicense = await findBillableSubscriptionLicense({ machineId, email });
     if (existingLicense) {
+      const existingResponse = await existingInvoiceResponse(stripe, existingLicense);
+      if (existingResponse) return json(existingResponse);
       return json({
         ok: true,
         already_active: true,
         message:
-          'Für diese Installation existiert bereits eine aktive oder offene Subscription.',
+          'Für diese Installation ist bereits eine Lizenz vorhanden. Es wurde keine zweite Subscription erstellt.',
         license: publicLicenseResponse(existingLicense, 'License already active'),
       });
     }
 
     const existingTrial = await findActiveTrialLicense({ machineId, email });
     const preservedTrialEnd = trialEndUnix(existingTrial);
-    const stripe = getStripe();
     const customer = await findOrCreateCustomer(stripe, {
       email,
       companyName,
@@ -131,7 +191,7 @@ export async function POST(request) {
         collection_method: 'send_invoice',
         days_until_due: INVOICE_DAYS_UNTIL_DUE,
         payment_settings: {
-          payment_method_types: ['card', 'customer_balance'],
+          payment_method_types: INVOICE_PAYMENT_METHODS,
         },
         ...(preservedTrialEnd ? { trial_end: preservedTrialEnd } : {}),
         metadata,
