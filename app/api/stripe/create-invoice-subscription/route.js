@@ -131,7 +131,7 @@ export async function POST(request) {
         collection_method: 'send_invoice',
         days_until_due: INVOICE_DAYS_UNTIL_DUE,
         payment_settings: {
-          payment_method_types: ['customer_balance'],
+          payment_method_types: ['card', 'customer_balance'],
         },
         ...(preservedTrialEnd ? { trial_end: preservedTrialEnd } : {}),
         metadata,
