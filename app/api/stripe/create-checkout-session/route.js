@@ -7,8 +7,7 @@ import {
   licenseForPaymentResponse,
   publicLicenseResponse,
 } from '../../../../lib/license.js';
-
-const INVOICE_PAYMENT_METHODS = ['card', 'customer_balance'];
+import { createCardSetupSession } from '../../../../lib/card-payment.js';
 
 function trialEndUnix(trialLicense) {
   if (!trialLicense?.trial_ends_at) return null;
@@ -16,42 +15,36 @@ function trialEndUnix(trialLicense) {
   return Number.isFinite(value) && value > Math.floor(Date.now() / 1000) ? value : null;
 }
 
-async function openExistingInvoiceForCardPayment(stripe, license, responseLicense) {
+async function createExistingSubscriptionCardSetup(stripe, license, responseLicense, siteUrl) {
   const subscriptionId = String(license?.stripe_subscription_id || '').trim();
   if (!subscriptionId) return null;
 
   const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
     expand: ['latest_invoice'],
   });
-  if (subscription.collection_method !== 'send_invoice') return null;
+  if (subscription.collection_method !== 'send_invoice') {
+    return {
+      ok: true,
+      already_active: true,
+      message: 'Für diese Installation ist die automatische Kartenzahlung bereits eingerichtet.',
+      license: publicLicenseResponse(responseLicense, 'Card subscription already active'),
+    };
+  }
 
-  await stripe.subscriptions.update(subscription.id, {
-    payment_settings: {
-      payment_method_types: INVOICE_PAYMENT_METHODS,
-    },
+  const session = await createCardSetupSession(stripe, {
+    subscription,
+    siteUrl,
+    license,
   });
-
-  const latestInvoice =
-    subscription.latest_invoice && typeof subscription.latest_invoice !== 'string'
-      ? subscription.latest_invoice
-      : null;
-  if (!latestInvoice || latestInvoice.status !== 'open') return null;
-
-  const invoice = await stripe.invoices.update(latestInvoice.id, {
-    payment_settings: {
-      payment_method_types: INVOICE_PAYMENT_METHODS,
-    },
-  });
-  if (!invoice.hosted_invoice_url) return null;
 
   return {
     ok: true,
-    existing_invoice: true,
-    billing_method: 'invoice',
-    url: invoice.hosted_invoice_url,
-    invoice_id: invoice.id,
-    message: 'Die offene Rechnung wurde zur Kartenzahlung geöffnet.',
-    license: publicLicenseResponse(responseLicense, 'Open invoice ready for card payment'),
+    billing_method: 'card',
+    converting_payment_method: true,
+    url: session.url,
+    id: session.id,
+    message: 'Stripe wurde geöffnet, um die Karte für automatische Zahlungen zu bestätigen.',
+    license: publicLicenseResponse(responseLicense, 'Card setup started'),
   };
 }
 
@@ -73,13 +66,14 @@ export async function POST(request) {
     const existingLicense = await findBillableSubscriptionLicense({ machineId, email });
     if (existingLicense) {
       const responseLicense = licenseForPaymentResponse(existingLicense, existingTrial);
-      const existingInvoice = await openExistingInvoiceForCardPayment(
+      const cardSetup = await createExistingSubscriptionCardSetup(
         stripe,
         existingLicense,
         responseLicense,
+        siteUrl,
       );
-      if (existingInvoice) {
-        return json(existingInvoice);
+      if (cardSetup) {
+        return json(cardSetup);
       }
       return json({
         ok: true,

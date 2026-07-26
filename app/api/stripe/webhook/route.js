@@ -8,6 +8,10 @@ import {
   stripeSubscriptionId,
 } from '../../../../lib/invoice.js';
 import { inspectStripeSubscription } from '../../../../lib/subscription-access.js';
+import {
+  completeCardConversion,
+  isCardConversionSession,
+} from '../../../../lib/card-payment.js';
 
 function fromUnix(value) {
   return value ? new Date(value * 1000).toISOString() : null;
@@ -192,6 +196,19 @@ async function handleSubscription(subscription, fallbackMetadata = {}) {
 }
 
 async function handleCheckoutSession(session) {
+  if (isCardConversionSession(session)) {
+    const result = await completeCardConversion(getStripe(), session);
+    if (!result.converted) {
+      console.error(`[LohnMail] ${result.message}`);
+      await handleSubscription(result.subscription, session.metadata || {});
+      if (result.invoice) await handleInvoice(result.invoice);
+      return;
+    }
+    await handleSubscription(result.subscription, session.metadata || {});
+    if (result.invoice) await handleInvoice(result.invoice);
+    return;
+  }
+
   if (!session.subscription) return;
   const subscription = await getStripe().subscriptions.retrieve(session.subscription);
   await handleSubscription(subscription, {
