@@ -241,7 +241,9 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
       release_machine: 'Computer-ID wirklich loesen?',
       revoke: 'Lizenz wirklich widerrufen?',
       reactivate: 'Lizenz wirklich reaktivieren?',
-      delete: 'Lizenz wirklich dauerhaft loeschen? Das geht nur fuer manuelle/test Lizenzen.',
+      delete: selected.stripe_subscription_id
+        ? 'Stripe-Test-Subscription und Lizenz wirklich dauerhaft loeschen? Die Test-Subscription wird dabei beendet.'
+        : 'Lizenz wirklich dauerhaft loeschen?',
     };
     if (!window.confirm(labels[action] || 'Aktion ausfuehren?')) return;
 
@@ -440,7 +442,17 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                     <button type="button" className="ghost-button" disabled={!selected.activated_machine_id || !!busyAction} onClick={() => runAction('release_machine')}>Computer loesen</button>
                     <button type="button" className="ghost-button" disabled={!!busyAction} onClick={() => runAction('reactivate')}>Reaktivieren</button>
                     <button type="button" className="danger-button" disabled={!!busyAction} onClick={() => runAction('revoke')}>Widerrufen</button>
-                    <button type="button" className="danger-button soft" disabled={!!busyAction || !!selected.stripe_subscription_id} onClick={() => runAction('delete')}>Loeschen</button>
+                    <button
+                      type="button"
+                      className="danger-button soft"
+                      disabled={!!busyAction || (!!selected.stripe_subscription_id && stripeMode !== 'test')}
+                      onClick={() => runAction('delete')}
+                      title={selected.stripe_subscription_id && stripeMode !== 'test'
+                        ? 'Stripe-Lizenzen koennen nur im Testmodus geloescht werden.'
+                        : ''}
+                    >
+                      Loeschen
+                    </button>
                   </div>
                 </>
               )}

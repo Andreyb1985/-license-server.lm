@@ -69,6 +69,9 @@ async function ensureSubscriptionLicense(
   licenseeCompanyNumber,
 ) {
   const existing = await client.query(`select * from licenses where stripe_subscription_id = $1 limit 1`, [subscription.id]);
+  if (!existing.rows[0] && subscription.status === 'canceled') {
+    return;
+  }
   const status = existing.rows[0]?.status === 'revoked' ? 'revoked' : licenseStatus;
   const previousTrialId = subscription.metadata?.previous_trial_license_id || '';
   const previousTrial = previousTrialId

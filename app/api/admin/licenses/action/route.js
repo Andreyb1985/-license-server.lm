@@ -1,9 +1,14 @@
 import { json, readJson, requireAdmin } from '../../../../../lib/http.js';
 import { query, withTransaction } from '../../../../../lib/db.js';
 import { findLicenseByKey, publicLicenseResponse } from '../../../../../lib/license.js';
+import { getStripe } from '../../../../../lib/stripe.js';
 
 function appendNote(note, line) {
   return [String(note || '').trim(), line].filter(Boolean).join('\n');
+}
+
+function isStripeTestMode() {
+  return String(process.env.STRIPE_SECRET_KEY || '').startsWith('sk_test_');
 }
 
 function adminLicenseResponse(row, message) {
@@ -75,11 +80,28 @@ export async function POST(request) {
 
     if (action === 'delete') {
       if (license.stripe_subscription_id) {
-        throw new Error('Stripe subscription licenses cannot be deleted. Revoke the license instead.');
+        if (!isStripeTestMode()) {
+          throw new Error('Stripe subscription licenses can only be deleted in Stripe test mode. Revoke the license instead.');
+        }
+
+        try {
+          const subscription = await getStripe().subscriptions.retrieve(license.stripe_subscription_id);
+          if (subscription.status !== 'canceled') {
+            await getStripe().subscriptions.cancel(license.stripe_subscription_id);
+          }
+        } catch (error) {
+          if (error?.code !== 'resource_missing') throw error;
+        }
       }
 
       await withTransaction(async (client) => {
         await client.query(`delete from license_checks where upper(license_key) = upper($1)`, [license.license_key]);
+        if (license.stripe_subscription_id) {
+          await client.query(
+            `delete from subscriptions where stripe_subscription_id = $1`,
+            [license.stripe_subscription_id],
+          );
+        }
         await client.query(`delete from licenses where id = $1`, [license.id]);
       });
 
@@ -88,7 +110,9 @@ export async function POST(request) {
         status: 'deleted',
         license_key: license.license_key,
         license_key_masked: publicLicenseResponse(license).license_key_masked,
-        message: 'License deleted',
+        message: license.stripe_subscription_id
+          ? 'Stripe test subscription and license deleted'
+          : 'License deleted',
       });
     }
 
