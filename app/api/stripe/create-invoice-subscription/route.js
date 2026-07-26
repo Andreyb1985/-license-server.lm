@@ -4,6 +4,7 @@ import { getStripe } from '../../../../lib/stripe.js';
 import {
   findActiveTrialLicense,
   findBillableSubscriptionLicense,
+  licenseForPaymentResponse,
   publicLicenseResponse,
 } from '../../../../lib/license.js';
 
@@ -65,7 +66,7 @@ async function findOrCreateCustomer(stripe, { email, companyName, address, compa
   });
 }
 
-async function existingInvoiceResponse(stripe, license) {
+async function existingInvoiceResponse(stripe, license, responseLicense) {
   const subscriptionId = String(license?.stripe_subscription_id || '').trim();
   if (!subscriptionId) return null;
 
@@ -78,7 +79,7 @@ async function existingInvoiceResponse(stripe, license) {
       already_active: true,
       message:
         'Für diese Installation ist bereits eine Kartenzahlung eingerichtet. Die Zahlungsart kann im Kundenportal geändert werden.',
-      license: publicLicenseResponse(license, 'Card subscription already active'),
+      license: publicLicenseResponse(responseLicense, 'Card subscription already active'),
     };
   }
 
@@ -106,7 +107,7 @@ async function existingInvoiceResponse(stripe, license) {
         subscription_id: subscription.id,
         invoice_url: invoice.hosted_invoice_url,
         message: 'Die offene Rechnung wurde geöffnet.',
-        license: publicLicenseResponse(license, 'Open invoice available'),
+        license: publicLicenseResponse(responseLicense, 'Open invoice available'),
       };
     }
   }
@@ -118,7 +119,7 @@ async function existingInvoiceResponse(stripe, license) {
       subscription.status === 'trialing'
         ? 'Rechnungszahlung ist bereits eingerichtet. Die erste Rechnung wird zum Ende der Testphase erstellt.'
         : 'Rechnungszahlung ist bereits eingerichtet. Aktuell ist keine offene Rechnung vorhanden.',
-    license: publicLicenseResponse(license, 'Invoice subscription already configured'),
+    license: publicLicenseResponse(responseLicense, 'Invoice subscription already configured'),
   };
 }
 
@@ -139,20 +140,25 @@ export async function POST(request) {
     const machineId = optionalText(body.machine_id, 200);
 
     const stripe = getStripe();
+    const existingTrial = await findActiveTrialLicense({ machineId, email });
     const existingLicense = await findBillableSubscriptionLicense({ machineId, email });
     if (existingLicense) {
-      const existingResponse = await existingInvoiceResponse(stripe, existingLicense);
+      const responseLicense = licenseForPaymentResponse(existingLicense, existingTrial);
+      const existingResponse = await existingInvoiceResponse(
+        stripe,
+        existingLicense,
+        responseLicense,
+      );
       if (existingResponse) return json(existingResponse);
       return json({
         ok: true,
         already_active: true,
         message:
           'Für diese Installation ist bereits eine Lizenz vorhanden. Es wurde keine zweite Subscription erstellt.',
-        license: publicLicenseResponse(existingLicense, 'License already active'),
+        license: publicLicenseResponse(responseLicense, 'License already active'),
       });
     }
 
-    const existingTrial = await findActiveTrialLicense({ machineId, email });
     const preservedTrialEnd = trialEndUnix(existingTrial);
     const customer = await findOrCreateCustomer(stripe, {
       email,

@@ -1,7 +1,12 @@
 import crypto from 'crypto';
 import { json, readJson } from '../../../../lib/http.js';
 import { getStripe } from '../../../../lib/stripe.js';
-import { findActiveTrialLicense, findBillableSubscriptionLicense, publicLicenseResponse } from '../../../../lib/license.js';
+import {
+  findActiveTrialLicense,
+  findBillableSubscriptionLicense,
+  licenseForPaymentResponse,
+  publicLicenseResponse,
+} from '../../../../lib/license.js';
 
 const INVOICE_PAYMENT_METHODS = ['card', 'customer_balance'];
 
@@ -11,7 +16,7 @@ function trialEndUnix(trialLicense) {
   return Number.isFinite(value) && value > Math.floor(Date.now() / 1000) ? value : null;
 }
 
-async function openExistingInvoiceForCardPayment(stripe, license) {
+async function openExistingInvoiceForCardPayment(stripe, license, responseLicense) {
   const subscriptionId = String(license?.stripe_subscription_id || '').trim();
   if (!subscriptionId) return null;
 
@@ -46,7 +51,7 @@ async function openExistingInvoiceForCardPayment(stripe, license) {
     url: invoice.hosted_invoice_url,
     invoice_id: invoice.id,
     message: 'Die offene Rechnung wurde zur Kartenzahlung geöffnet.',
-    license: publicLicenseResponse(license, 'Open invoice ready for card payment'),
+    license: publicLicenseResponse(responseLicense, 'Open invoice ready for card payment'),
   };
 }
 
@@ -64,9 +69,15 @@ export async function POST(request) {
     const machineId = String(body.machine_id || '').trim();
 
     const stripe = getStripe();
+    const existingTrial = await findActiveTrialLicense({ machineId, email });
     const existingLicense = await findBillableSubscriptionLicense({ machineId, email });
     if (existingLicense) {
-      const existingInvoice = await openExistingInvoiceForCardPayment(stripe, existingLicense);
+      const responseLicense = licenseForPaymentResponse(existingLicense, existingTrial);
+      const existingInvoice = await openExistingInvoiceForCardPayment(
+        stripe,
+        existingLicense,
+        responseLicense,
+      );
       if (existingInvoice) {
         return json(existingInvoice);
       }
@@ -74,11 +85,10 @@ export async function POST(request) {
         ok: true,
         already_active: true,
         message: 'Für diese Installation existiert bereits eine aktive Lizenz. Es wurde kein neuer Checkout erstellt.',
-        license: publicLicenseResponse(existingLicense, 'License already active'),
+        license: publicLicenseResponse(responseLicense, 'License already active'),
       });
     }
 
-    const existingTrial = await findActiveTrialLicense({ machineId, email });
     const preservedTrialEnd = trialEndUnix(existingTrial);
     const idempotencySource = [machineId, email, companyName, licenseeAddress, licenseeCompanyNumber].join(':');
     const idempotencyKey = idempotencySource
