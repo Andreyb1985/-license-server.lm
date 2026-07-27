@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  licenseAccessEndsAt,
   licenseForPaymentResponse,
   publicLicenseResponse,
 } from '../lib/license.js';
@@ -76,4 +77,30 @@ test('an unpaid subscription is blocked when its preserved trial has ended', () 
   assert.equal(response.status, 'unpaid');
   assert.equal(response.active, false);
   assert.equal(response.blocked, true);
+});
+
+test('creating a subscription does not add a paid month before payment', () => {
+  const trialEnd = futureIso(30);
+  const accessEnd = licenseAccessEndsAt({
+    type: 'subscription',
+    status: 'trialing',
+    stripe_subscription_id: 'sub_pending',
+    trial_ends_at: trialEnd,
+    current_period_end: trialEnd,
+  });
+
+  assert.equal(accessEnd, trialEnd);
+});
+
+test('a paid subscription adds one calendar month after its preserved trial', () => {
+  const trialEnd = '2028-01-31T12:00:00.000Z';
+  const accessEnd = licenseAccessEndsAt({
+    type: 'subscription',
+    status: 'active',
+    stripe_subscription_id: 'sub_paid',
+    trial_ends_at: trialEnd,
+    current_period_end: trialEnd,
+  });
+
+  assert.equal(accessEnd, '2028-02-29T12:00:00.000Z');
 });

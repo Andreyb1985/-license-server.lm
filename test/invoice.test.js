@@ -85,6 +85,18 @@ test('a preserved trial remains usable while its first invoice is pending', () =
   );
 });
 
+test('a paid prepaid month activates a Stripe subscription that is still trialing', () => {
+  assert.equal(
+    resolveSubscriptionLicenseStatus({
+      status: 'trialing',
+      collection_method: 'send_invoice',
+      trial_end: 1_800_000_000,
+      metadata: { lohnmail_prepaid_trial_paid: 'true' },
+    }),
+    'active',
+  );
+});
+
 test('revoked licenses cannot be reactivated by Stripe subscription events', () => {
   assert.equal(
     resolveSubscriptionLicenseStatus(

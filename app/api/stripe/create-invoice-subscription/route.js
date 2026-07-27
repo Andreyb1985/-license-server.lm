@@ -8,15 +8,15 @@ import {
   publicLicenseResponse,
 } from '../../../../lib/license.js';
 import { CARD_INVOICE_CONVERSION_FLAG } from '../../../../lib/card-payment.js';
+import {
+  ensurePrepaidTrialInvoice,
+  oneTimePriceData,
+  prepaidMetadata,
+  prepaidTrialPlan,
+} from '../../../../lib/prepaid-trial.js';
 
 const INVOICE_DAYS_UNTIL_DUE = 14;
 const INVOICE_PAYMENT_METHODS = ['card', 'customer_balance'];
-
-function trialEndUnix(trialLicense) {
-  if (!trialLicense?.trial_ends_at) return null;
-  const value = Math.floor(new Date(trialLicense.trial_ends_at).getTime() / 1000);
-  return Number.isFinite(value) && value > Math.floor(Date.now() / 1000) ? value : null;
-}
 
 function requiredText(value, field, maxLength) {
   const text = String(value || '').trim().replace(/\s+/g, ' ');
@@ -67,13 +67,34 @@ async function findOrCreateCustomer(stripe, { email, companyName, address, compa
   });
 }
 
-async function existingInvoiceResponse(stripe, license, responseLicense) {
+async function existingInvoiceResponse(stripe, license, responseLicense, trialLicense, priceId) {
   const subscriptionId = String(license?.stripe_subscription_id || '').trim();
   if (!subscriptionId) return null;
 
   const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
     expand: ['latest_invoice'],
   });
+  const prepaidInvoice = await ensurePrepaidTrialInvoice(stripe, {
+    subscription,
+    trialLicense,
+    priceId,
+    paymentMethodTypes: INVOICE_PAYMENT_METHODS,
+    billingMethod: 'invoice',
+    daysUntilDue: INVOICE_DAYS_UNTIL_DUE,
+    cardConversionFlag: CARD_INVOICE_CONVERSION_FLAG,
+  });
+  if (prepaidInvoice?.invoice?.status !== 'paid') {
+    return {
+      ok: true,
+      existing_invoice: true,
+      billing_method: 'invoice',
+      subscription_id: subscription.id,
+      invoice_url: prepaidInvoice.invoice.hosted_invoice_url,
+      url: prepaidInvoice.invoice.hosted_invoice_url,
+      message: 'Die Rechnung für den vorausbezahlten Monat wurde geöffnet.',
+      license: publicLicenseResponse(responseLicense, 'Prepaid invoice available'),
+    };
+  }
   if (subscription.collection_method !== 'send_invoice') {
     return {
       ok: true,
@@ -154,6 +175,8 @@ export async function POST(request) {
         stripe,
         existingLicense,
         responseLicense,
+        existingTrial || existingLicense,
+        priceId,
       );
       if (existingResponse) return json(existingResponse);
       return json({
@@ -165,14 +188,14 @@ export async function POST(request) {
       });
     }
 
-    const preservedTrialEnd = trialEndUnix(existingTrial);
+    const prepaidPlan = prepaidTrialPlan(existingTrial);
     const customer = await findOrCreateCustomer(stripe, {
       email,
       companyName,
       address,
       companyNumber,
     });
-    const metadata = {
+    const metadata = prepaidMetadata(prepaidPlan, {
       app: 'lohnmail',
       company_name: companyName,
       licensee_name: companyName,
@@ -183,7 +206,7 @@ export async function POST(request) {
       billing_method: 'invoice',
       previous_trial_license_id: existingTrial?.id || '',
       previous_trial_ends_at: existingTrial?.trial_ends_at || '',
-    };
+    });
     const idempotencySource = [
       priceId,
       customer.id,
@@ -191,11 +214,12 @@ export async function POST(request) {
       email,
       existingTrial?.id || '',
     ].join(':');
-    const idempotencyKey = `lohnmail-invoice-${crypto
+    const idempotencyKey = `lohnmail-invoice-v2-${crypto
       .createHash('sha256')
       .update(idempotencySource)
       .digest('hex')}`;
 
+    const recurringPrice = prepaidPlan ? await stripe.prices.retrieve(priceId) : null;
     const subscription = await stripe.subscriptions.create(
       {
         customer: customer.id,
@@ -205,7 +229,17 @@ export async function POST(request) {
         payment_settings: {
           payment_method_types: INVOICE_PAYMENT_METHODS,
         },
-        ...(preservedTrialEnd ? { trial_end: preservedTrialEnd } : {}),
+        ...(prepaidPlan ? { trial_end: prepaidPlan.trialEnd } : {}),
+        ...(prepaidPlan
+          ? {
+              add_invoice_items: [
+                {
+                  price_data: oneTimePriceData(recurringPrice),
+                  quantity: 1,
+                },
+              ],
+            }
+          : {}),
         metadata,
         expand: ['latest_invoice'],
       },
@@ -224,11 +258,11 @@ export async function POST(request) {
       status: subscription.status,
       days_until_due: INVOICE_DAYS_UNTIL_DUE,
       invoice_url:
-        !preservedTrialEnd && Number(latestInvoice?.amount_due || 0) > 0
+        Number(latestInvoice?.amount_due || 0) > 0
           ? latestInvoice?.hosted_invoice_url || ''
           : '',
-      message: preservedTrialEnd
-        ? 'Rechnungszahlung eingerichtet. Die erste Rechnung wird zum Ende der Testphase erstellt.'
+      message: prepaidPlan
+        ? 'Die Rechnung für den vorausbezahlten Monat wurde erstellt.'
         : 'Rechnungszahlung eingerichtet. Stripe sendet die Rechnung per E-Mail.',
     });
   } catch (error) {

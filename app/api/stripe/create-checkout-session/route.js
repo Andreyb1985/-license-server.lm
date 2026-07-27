@@ -11,20 +11,49 @@ import {
   createCardSetupSession,
   prepareOpenInvoiceCardPayment,
 } from '../../../../lib/card-payment.js';
+import {
+  ensurePrepaidTrialInvoice,
+  oneTimePriceData,
+  prepaidMetadata,
+  prepaidTrialPlan,
+} from '../../../../lib/prepaid-trial.js';
 
-function trialEndUnix(trialLicense) {
-  if (!trialLicense?.trial_ends_at) return null;
-  const value = Math.floor(new Date(trialLicense.trial_ends_at).getTime() / 1000);
-  return Number.isFinite(value) && value > Math.floor(Date.now() / 1000) ? value : null;
-}
-
-async function createExistingSubscriptionCardSetup(stripe, license, responseLicense, siteUrl) {
+async function createExistingSubscriptionCardSetup(
+  stripe,
+  license,
+  responseLicense,
+  trialLicense,
+  siteUrl,
+  priceId,
+) {
   const subscriptionId = String(license?.stripe_subscription_id || '').trim();
   if (!subscriptionId) return null;
 
   const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
     expand: ['latest_invoice'],
   });
+  const prepaidInvoice = await ensurePrepaidTrialInvoice(stripe, {
+    subscription,
+    trialLicense,
+    priceId,
+    paymentMethodTypes: ['card'],
+    billingMethod: 'card_pending',
+    convertToCard: true,
+    cardConversionFlag: 'convert_to_card_after_invoice_payment',
+  });
+  if (prepaidInvoice?.invoice?.status !== 'paid') {
+    return {
+      ok: true,
+      billing_method: 'card',
+      existing_invoice: true,
+      converting_payment_method: true,
+      invoice_url: prepaidInvoice.invoice.hosted_invoice_url,
+      url: prepaidInvoice.invoice.hosted_invoice_url,
+      id: prepaidInvoice.invoice.id,
+      message: 'Der vorausbezahlte Monat wurde zur Kartenzahlung geöffnet.',
+      license: publicLicenseResponse(responseLicense, 'Prepaid month ready for card payment'),
+    };
+  }
   if (subscription.collection_method !== 'send_invoice') {
     return {
       ok: true,
@@ -90,7 +119,9 @@ export async function POST(request) {
         stripe,
         existingLicense,
         responseLicense,
+        existingTrial || existingLicense,
         siteUrl,
+        priceId,
       );
       if (cardSetup) {
         return json(cardSetup);
@@ -103,15 +134,23 @@ export async function POST(request) {
       });
     }
 
-    const preservedTrialEnd = trialEndUnix(existingTrial);
+    const prepaidPlan = prepaidTrialPlan(existingTrial);
+    const lineItems = [{ price: priceId, quantity: 1 }];
+    if (prepaidPlan) {
+      const recurringPrice = await stripe.prices.retrieve(priceId);
+      lineItems.push({
+        price_data: oneTimePriceData(recurringPrice),
+        quantity: 1,
+      });
+    }
     const idempotencySource = [machineId, email, companyName, licenseeAddress, licenseeCompanyNumber].join(':');
     const idempotencyKey = idempotencySource
-      ? `lohnmail-checkout-${crypto.createHash('sha256').update(`${priceId}:${idempotencySource}`).digest('hex')}`
+      ? `lohnmail-checkout-v2-${crypto.createHash('sha256').update(`${priceId}:${idempotencySource}`).digest('hex')}`
       : undefined;
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      line_items: [{ price: priceId, quantity: 1 }],
+      line_items: lineItems,
       customer_email: email || undefined,
       allow_promotion_codes: true,
       success_url: `${siteUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
@@ -129,8 +168,8 @@ export async function POST(request) {
         previous_trial_ends_at: existingTrial?.trial_ends_at || '',
       },
       subscription_data: {
-        ...(preservedTrialEnd ? { trial_end: preservedTrialEnd } : {}),
-        metadata: {
+        ...(prepaidPlan ? { trial_end: prepaidPlan.accessEnd } : {}),
+        metadata: prepaidMetadata(prepaidPlan, {
           app: 'lohnmail',
           company_name: companyName,
           licensee_name: companyName,
@@ -142,7 +181,7 @@ export async function POST(request) {
           billing_method: 'card',
           previous_trial_license_id: existingTrial?.id || '',
           previous_trial_ends_at: existingTrial?.trial_ends_at || '',
-        },
+        }),
       },
     }, idempotencyKey ? { idempotencyKey } : undefined);
 

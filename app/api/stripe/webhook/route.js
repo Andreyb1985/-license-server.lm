@@ -13,6 +13,7 @@ import {
   completeCardConversion,
   isCardConversionSession,
 } from '../../../../lib/card-payment.js';
+import { completePrepaidTrialPayment } from '../../../../lib/prepaid-trial.js';
 
 function fromUnix(value) {
   return value ? new Date(value * 1000).toISOString() : null;
@@ -301,6 +302,14 @@ export async function POST(request) {
           let subscription = await getStripe().subscriptions.retrieve(subscriptionId, {
             expand: ['default_payment_method'],
           });
+          const prepaidPayment = await completePrepaidTrialPayment(
+            getStripe(),
+            subscription,
+            object,
+          );
+          if (prepaidPayment.handled) {
+            subscription = prepaidPayment.subscription;
+          }
           const cardConversion = await completePaidInvoiceCardConversion(
             getStripe(),
             subscription,
