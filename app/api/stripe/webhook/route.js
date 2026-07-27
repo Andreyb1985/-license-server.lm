@@ -9,6 +9,7 @@ import {
 } from '../../../../lib/invoice.js';
 import { inspectStripeSubscription } from '../../../../lib/subscription-access.js';
 import {
+  completePaidInvoiceCardConversion,
   completeCardConversion,
   isCardConversionSession,
 } from '../../../../lib/card-payment.js';
@@ -297,7 +298,20 @@ export async function POST(request) {
       case 'invoice.paid':
         if (object.subscription) {
           const subscriptionId = stripeSubscriptionId(object.subscription);
-          const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
+          let subscription = await getStripe().subscriptions.retrieve(subscriptionId, {
+            expand: ['default_payment_method'],
+          });
+          const cardConversion = await completePaidInvoiceCardConversion(
+            getStripe(),
+            subscription,
+            object,
+          );
+          if (cardConversion.handled) {
+            subscription = cardConversion.subscription;
+            if (!cardConversion.converted) {
+              console.error(`[LohnMail] ${cardConversion.message}`);
+            }
+          }
           await handleSubscription(subscription);
           await handleInvoice(object);
           await markLicenseBySubscription(

@@ -7,7 +7,10 @@ import {
   licenseForPaymentResponse,
   publicLicenseResponse,
 } from '../../../../lib/license.js';
-import { createCardSetupSession } from '../../../../lib/card-payment.js';
+import {
+  createCardSetupSession,
+  prepareOpenInvoiceCardPayment,
+} from '../../../../lib/card-payment.js';
 
 function trialEndUnix(trialLicense) {
   if (!trialLicense?.trial_ends_at) return null;
@@ -31,6 +34,22 @@ async function createExistingSubscriptionCardSetup(stripe, license, responseLice
     };
   }
 
+  const invoicePayment = await prepareOpenInvoiceCardPayment(stripe, subscription);
+  if (invoicePayment) {
+    return {
+      ok: true,
+      billing_method: 'card',
+      existing_invoice: true,
+      converting_payment_method: true,
+      invoice_url: invoicePayment.url,
+      url: invoicePayment.url,
+      id: invoicePayment.invoice.id,
+      message:
+        'Die offene Rechnung wurde zur Kartenzahlung geöffnet. Nach erfolgreicher Zahlung werden Folgerechnungen automatisch eingezogen.',
+      license: publicLicenseResponse(responseLicense, 'Open invoice ready for card payment'),
+    };
+  }
+
   const session = await createCardSetupSession(stripe, {
     subscription,
     siteUrl,
@@ -43,7 +62,8 @@ async function createExistingSubscriptionCardSetup(stripe, license, responseLice
     converting_payment_method: true,
     url: session.url,
     id: session.id,
-    message: 'Stripe wurde geöffnet, um die Karte für automatische Zahlungen zu bestätigen.',
+    message:
+      'Aktuell ist keine Rechnung fällig. Stripe wurde geöffnet, um die Karte für zukünftige Zahlungen zu bestätigen.',
     license: publicLicenseResponse(responseLicense, 'Card setup started'),
   };
 }

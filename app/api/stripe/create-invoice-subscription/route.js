@@ -7,6 +7,7 @@ import {
   licenseForPaymentResponse,
   publicLicenseResponse,
 } from '../../../../lib/license.js';
+import { CARD_INVOICE_CONVERSION_FLAG } from '../../../../lib/card-payment.js';
 
 const INVOICE_DAYS_UNTIL_DUE = 14;
 const INVOICE_PAYMENT_METHODS = ['card', 'customer_balance'];
@@ -86,6 +87,11 @@ async function existingInvoiceResponse(stripe, license, responseLicense) {
   await stripe.subscriptions.update(subscription.id, {
     payment_settings: {
       payment_method_types: INVOICE_PAYMENT_METHODS,
+    },
+    metadata: {
+      ...subscription.metadata,
+      billing_method: 'invoice',
+      [CARD_INVOICE_CONVERSION_FLAG]: '',
     },
   });
 
