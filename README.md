@@ -157,3 +157,32 @@ licenses are blocked.
 5. Add the production webhook URL in Stripe and set the production
    `STRIPE_WEBHOOK_SECRET`.
 6. Set the desktop `LICENSE_SERVER_URL` to the deployed Vercel URL.
+
+## Windows Updates
+
+The desktop application checks `/api/updates/windows/latest`. The endpoint only
+announces a release after every required `WINDOWS_UPDATE_*` variable is set.
+Until then it returns `available: false`.
+
+Publish the signed `.exe` or `.msi` installer in a stable HTTPS location, for
+example GitHub Releases or Vercel Blob. Then configure the release in Vercel:
+
+- `WINDOWS_UPDATE_VERSION`: semantic version, for example `2.1.0`.
+- `WINDOWS_UPDATE_BUILD`: build identifier, for example `2026.08.23`.
+- `WINDOWS_UPDATE_URL`: direct HTTPS URL ending in `.exe` or `.msi`.
+- `WINDOWS_UPDATE_SHA256`: lowercase SHA-256 digest of the installer.
+- `WINDOWS_UPDATE_SIZE`: exact installer size in bytes.
+- `WINDOWS_UPDATE_RELEASE_NOTES`: JSON array or one item per line.
+- `WINDOWS_UPDATE_PUBLISHED_AT`: ISO 8601 timestamp.
+
+Generate verification values on macOS with:
+
+```bash
+shasum -a 256 LohnMail-Setup.exe
+wc -c LohnMail-Setup.exe
+```
+
+Keep `WINDOWS_UPDATE_REQUIRED=false` for normal releases. Set it to `true` only
+for a critical vulnerability or incompatibility and set
+`WINDOWS_UPDATE_REQUIRED_REASON` to `security`, `critical_security`,
+`incompatible`, or `critical_incompatibility`.
