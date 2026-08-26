@@ -242,8 +242,8 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
       revoke: 'Lizenz wirklich widerrufen?',
       reactivate: 'Lizenz wirklich reaktivieren?',
       delete: selected.stripe_subscription_id
-        ? 'Stripe-Test-Subscription und Lizenz wirklich dauerhaft loeschen? Die Test-Subscription wird dabei beendet.'
-        : 'Lizenz wirklich dauerhaft loeschen?',
+        ? 'Stripe-Test-Subscription und Lizenz wirklich dauerhaft löschen? Die Test-Subscription wird dabei beendet. Dieser Vorgang kann nicht rückgängig gemacht werden.'
+        : 'Lizenz einschließlich ihrer Prüfprotokolle wirklich dauerhaft löschen? Dieser Vorgang kann nicht rückgängig gemacht werden.',
     };
     if (!window.confirm(labels[action] || 'Aktion ausfuehren?')) return;
 
@@ -451,7 +451,7 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                         ? 'Stripe-Lizenzen koennen nur im Testmodus geloescht werden.'
                         : ''}
                     >
-                      Loeschen
+                      Lizenz löschen
                     </button>
                   </div>
                 </>
