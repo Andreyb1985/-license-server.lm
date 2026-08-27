@@ -2,13 +2,10 @@ import { json, readJson, requireAdmin } from '../../../../../lib/http.js';
 import { query, withTransaction } from '../../../../../lib/db.js';
 import { findLicenseByKey, publicLicenseResponse } from '../../../../../lib/license.js';
 import { getStripe } from '../../../../../lib/stripe.js';
+import { requireStripeDeleteConfirmation } from '../../../../../lib/license-deletion.js';
 
 function appendNote(note, line) {
   return [String(note || '').trim(), line].filter(Boolean).join('\n');
-}
-
-function isStripeTestMode() {
-  return String(process.env.STRIPE_SECRET_KEY || '').startsWith('sk_test_');
 }
 
 function adminLicenseResponse(row, message) {
@@ -80,9 +77,7 @@ export async function POST(request) {
 
     if (action === 'delete') {
       if (license.stripe_subscription_id) {
-        if (!isStripeTestMode()) {
-          throw new Error('Stripe subscription licenses can only be deleted in Stripe test mode. Revoke the license instead.');
-        }
+        requireStripeDeleteConfirmation(license, body.confirm_stripe_delete);
 
         try {
           const subscription = await getStripe().subscriptions.retrieve(license.stripe_subscription_id);
@@ -111,7 +106,7 @@ export async function POST(request) {
         license_key: license.license_key,
         license_key_masked: publicLicenseResponse(license).license_key_masked,
         message: license.stripe_subscription_id
-          ? 'Stripe test subscription and license deleted'
+          ? 'Stripe subscription canceled and license deleted'
           : 'License deleted',
       });
     }

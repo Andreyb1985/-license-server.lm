@@ -121,10 +121,10 @@ npm run license:revoke -- --license-key LM-LIFE-...
 ```
 
 The protected `/admin` dashboard also supports permanent deletion. Deleting a
-manual or trial license removes its license-check records first. A license tied
-to Stripe can only be deleted while the server uses a Stripe test key; its test
-subscription is canceled before the local database records are removed. Live
-Stripe licenses must be revoked instead of deleted.
+manual or trial license removes its license-check records first. Deleting any
+license tied to Stripe requires an additional confirmation. Its Stripe
+subscription is canceled before the
+local database records are removed, in both test and live mode.
 
 Admin API variants require:
 

@@ -397,7 +397,7 @@ const adminCss = `
   .license-table-wrap tbody tr:hover td{background:#f8fafc}
   .license-table-wrap .selected-row td{background:#ecfdf5}
   .license-table-wrap .selected-row:hover td{background:#dcfce7}
-  .license-detail{padding:18px;background:#fbfdff;min-width:0}
+  .license-detail{padding:18px;background:#fbfdff;min-width:0;max-height:680px;overflow:auto;display:flex;flex-direction:column}
   .detail-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:16px}
   .detail-head small{display:block;color:#64748b;font-weight:900;margin-bottom:5px}
   .detail-head h3{margin:0;font-size:20px}
@@ -412,6 +412,7 @@ const adminCss = `
   .trial-banner span{display:block;color:#64748b;font-size:12px;margin-top:3px}
   .license-note{white-space:pre-wrap;background:white;border:1px solid #edf2f7;border-radius:12px;padding:12px;color:#334155;line-height:1.45;max-height:160px;overflow:auto}
   .detail-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .license-detail>.detail-actions{position:sticky;bottom:-18px;z-index:5;margin:14px -18px -18px;padding:14px 18px;background:rgba(251,253,255,.97);border-top:1px solid #dbe5ee;box-shadow:0 -8px 18px rgba(15,23,42,.06);backdrop-filter:blur(8px)}
   .detail-actions button{min-height:40px;border:0;border-radius:10px;background:#008357;color:white;font-weight:900;padding:0 14px}
   .detail-actions button:disabled{opacity:.45;cursor:not-allowed}
   .detail-actions .ghost-button{background:white;color:#008357;border:1px solid #cce8db}

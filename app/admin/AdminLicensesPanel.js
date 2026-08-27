@@ -242,16 +242,25 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
       revoke: 'Lizenz wirklich widerrufen?',
       reactivate: 'Lizenz wirklich reaktivieren?',
       delete: selected.stripe_subscription_id
-        ? 'Stripe-Test-Subscription und Lizenz wirklich dauerhaft löschen? Die Test-Subscription wird dabei beendet. Dieser Vorgang kann nicht rückgängig gemacht werden.'
+        ? 'Stripe-Subscription und Lizenz wirklich dauerhaft löschen? Die Subscription wird beendet und weitere Zahlungen werden gestoppt. Dieser Vorgang kann nicht rückgängig gemacht werden.'
         : 'Lizenz einschließlich ihrer Prüfprotokolle wirklich dauerhaft löschen? Dieser Vorgang kann nicht rückgängig gemacht werden.',
     };
     if (!window.confirm(labels[action] || 'Aktion ausfuehren?')) return;
+
+    let stripeDeleteConfirmation = false;
+    if (action === 'delete' && selected.stripe_subscription_id) {
+      stripeDeleteConfirmation = window.confirm(
+        'Zusätzliche Stripe-Bestätigung:\n\nDie Stripe-Subscription wird gekündigt und die Lizenz dauerhaft gelöscht. Wirklich fortfahren?',
+      );
+      if (!stripeDeleteConfirmation) return;
+    }
 
     setBusyAction(action);
     try {
       const data = await callAdminApi('/api/admin/licenses/action', {
         license_key: selected.license_key,
         action,
+        confirm_stripe_delete: stripeDeleteConfirmation,
       });
       replaceLicense(data);
       setMessage(data.message || 'Action completed.');
@@ -445,11 +454,11 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                     <button
                       type="button"
                       className="danger-button soft"
-                      disabled={!!busyAction || (!!selected.stripe_subscription_id && stripeMode !== 'test')}
+                      disabled={!!busyAction}
                       onClick={() => runAction('delete')}
-                      title={selected.stripe_subscription_id && stripeMode !== 'test'
-                        ? 'Stripe-Lizenzen koennen nur im Testmodus geloescht werden.'
-                        : ''}
+                      title={selected.stripe_subscription_id
+                        ? 'Stripe-Subscription kündigen und Lizenz nach zusätzlicher Bestätigung löschen.'
+                        : 'Lizenz dauerhaft löschen.'}
                     >
                       Lizenz löschen
                     </button>
