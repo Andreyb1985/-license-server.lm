@@ -409,7 +409,7 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                     <input name="trial_ends_at" type="date" defaultValue={dateValue(selected.trial_ends_at)} />
                   </label>
                   <label>
-                    Periode bis
+                    Bezahlt bis
                     <input name="current_period_end" type="date" defaultValue={dateValue(selected.current_period_end)} />
                   </label>
                   <label className="wide">
@@ -439,7 +439,7 @@ export default function AdminLicensesPanel({ adminSecret, licenses, stripeMode =
                     <div><dt>Stripe Kunde</dt><dd><StripeLink id={selected.stripe_customer_id} type="customer" stripeMode={stripeMode}>{text(selected.stripe_customer_id)}</StripeLink></dd></div>
                     <div><dt>Subscription</dt><dd><StripeLink id={selected.stripe_subscription_id} type="subscription" stripeMode={stripeMode}>{text(selected.stripe_subscription_id)}</StripeLink></dd></div>
                     <div><dt>Probezeit</dt><dd>{selectedTrialEnd ? `${fmtDate(selectedTrialEnd)} ${trialSourceLabel(selected)}`.trim() : '-'}</dd></div>
-                    <div><dt>Stripe Periode</dt><dd>{fmtDate(selected.current_period_end)}</dd></div>
+                    <div><dt>Bezahlter Zeitraum</dt><dd>{fmtDate(selected.current_period_end)}</dd></div>
                     <div><dt>Lizenz gültig bis</dt><dd>{fmtDate(selectedAccessEnd)}</dd></div>
                     <div><dt>Letzte Pruefung</dt><dd>{fmtDate(selected.last_check_at)}</dd></div>
                     <div><dt>Erstellt</dt><dd>{fmtDate(selected.created_at)}</dd></div>
