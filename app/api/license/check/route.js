@@ -3,6 +3,7 @@ import { query, withTransaction } from '../../../../lib/db.js';
 import { ACTIVE_STATUSES, findLicenseByKey, logLicenseCheck, publicLicenseResponse } from '../../../../lib/license.js';
 import { getStripe } from '../../../../lib/stripe.js';
 import { inspectStripeSubscription } from '../../../../lib/subscription-access.js';
+import { logLicenseOperation } from '../../../../lib/license-audit.js';
 
 function cleanText(value, maxLength) {
   const normalized = String(value || '').trim();
@@ -132,6 +133,7 @@ export async function POST(request) {
     let license = await findLicenseByKey(licenseKey);
     if (!license) {
       await logLicenseCheck({ licenseKey, machineId, status: 'invalid', request, appVersion });
+      await logLicenseOperation({ operation: 'license.check', outcome: 'not_found', source: 'desktop', licenseKey, machineId, request, appVersion });
       return json({ status: 'invalid', type: 'invalid', active: false, message: 'License not found' }, 404);
     }
     license = await reconcileInvoiceLicense(license);
@@ -143,6 +145,7 @@ export async function POST(request) {
       await updateLicensee(license, body);
       const updated = await findLicenseByKey(licenseKey);
       await logLicenseCheck({ licenseKey, machineId, status: updated.status, request, appVersion });
+      await logLicenseOperation({ operation: 'licensee.update', outcome: 'success', source: 'desktop', license: updated, machineId, statusBefore: license.status, statusAfter: updated.status, request, appVersion });
       return json(publicLicenseResponse(updated, 'Licensee details updated'));
     }
 
@@ -182,12 +185,14 @@ export async function POST(request) {
         const nextLicense = replacement.rows[0];
         await query(`update licenses set last_check_at = now() where id = $1`, [nextLicense.id]);
         await logLicenseCheck({ licenseKey: nextLicense.license_key, machineId, status: nextLicense.status, request, appVersion });
+        await logLicenseOperation({ operation: 'license.check', outcome: 'replacement', source: 'desktop', license: nextLicense, licenseKey, machineId, statusBefore: license.status, statusAfter: nextLicense.status, request, appVersion, details: { replaced_license_key: licenseKey } });
         return json(publicLicenseResponse(nextLicense, 'Paid license linked to this machine'));
       }
     }
 
     await query(`update licenses set last_check_at = now() where id = $1`, [license.id]);
     await logLicenseCheck({ licenseKey, machineId, status, request, appVersion });
+    await logLicenseOperation({ operation: 'license.check', outcome: status === 'invalid' ? 'machine_conflict' : 'success', source: 'desktop', license, machineId, previousMachineId: license.activated_machine_id, statusBefore: license.status, statusAfter: status, request, appVersion });
     return json(publicLicenseResponse({ ...license, status }, status === 'invalid' ? 'License bound to another machine' : 'License checked'));
   } catch (error) {
     await logLicenseCheck({ licenseKey, machineId, status: 'invalid', request, appVersion }).catch(() => {});

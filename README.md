@@ -29,6 +29,7 @@ Use Supabase or Neon Postgres and run:
 psql "$DATABASE_URL" -f migrations/001_license_schema.sql
 psql "$DATABASE_URL" -f migrations/002_licensee_fields.sql
 psql "$DATABASE_URL" -f migrations/003_invoice_billing.sql
+psql "$DATABASE_URL" -f migrations/004_license_operations.sql
 ```
 
 Migration `002_licensee_fields.sql` is required for databases created before

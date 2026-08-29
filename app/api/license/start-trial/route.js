@@ -1,5 +1,6 @@
 import { json, readJson } from '../../../../lib/http.js';
 import { findLicenseByMachine, insertLicense, publicLicenseResponse } from '../../../../lib/license.js';
+import { logLicenseOperation } from '../../../../lib/license-audit.js';
 
 export async function POST(request) {
   try {
@@ -9,6 +10,17 @@ export async function POST(request) {
 
     const existing = await findLicenseByMachine(machineId);
     if (existing) {
+      await logLicenseOperation({
+        operation: 'trial.lookup',
+        outcome: 'existing',
+        source: 'desktop',
+        license: existing,
+        machineId,
+        statusAfter: existing.status,
+        request,
+        appVersion: body.app_version,
+        details: { message: 'Existing license returned for machine ID.' },
+      });
       return json(publicLicenseResponse(existing, 'Existing license found'));
     }
 
@@ -29,8 +41,27 @@ export async function POST(request) {
       note: `Trial started from ${body.app_version || 'unknown app version'}`,
     });
 
+    await logLicenseOperation({
+      operation: 'trial.create',
+      outcome: 'created',
+      source: 'desktop',
+      license,
+      machineId,
+      statusAfter: license.status,
+      request,
+      appVersion: body.app_version,
+      details: { trial_ends_at: license.trial_ends_at },
+    });
+
     return json(publicLicenseResponse(license, 'Trial active'));
   } catch (error) {
+    await logLicenseOperation({
+      operation: 'trial.start',
+      outcome: 'error',
+      source: 'desktop',
+      request,
+      details: { error: error.message },
+    }).catch(() => {});
     return json({ status: 'invalid', active: false, message: error.message }, 400);
   }
 }

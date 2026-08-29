@@ -2,6 +2,7 @@ import { query } from '../../lib/db.js';
 import { maskLicenseKey } from '../../lib/license.js';
 import AdminLicenseForm from './AdminLicenseForm.js';
 import AdminLicensesPanel from './AdminLicensesPanel.js';
+import { ensureLicenseOperationsTable } from '../../lib/license-audit.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,7 +59,8 @@ function serializeRows(rows) {
 }
 
 async function loadAdminData() {
-  const [licenses, customers, subscriptions, checks, duplicates] = await Promise.all([
+  await ensureLicenseOperationsTable();
+  const [licenses, customers, subscriptions, checks, operations, duplicates] = await Promise.all([
     query(
       `select l.id, l.license_key, l.type, l.status, l.plan, l.company_name, l.email,
               l.licensee_address, l.licensee_company_number, l.seats, l.activated_machine_id,
@@ -111,6 +113,13 @@ async function loadAdminData() {
        limit 80`,
     ),
     query(
+      `select id, operation, outcome, source, license_key, machine_id, previous_machine_id,
+              status_before, status_after, ip, app_version, details, created_at
+       from license_operations
+       order by created_at desc
+       limit 200`,
+    ),
+    query(
       `with candidates as (
          select 'machine' as kind, activated_machine_id as value, license_key, stripe_subscription_id, status
          from licenses
@@ -144,6 +153,7 @@ async function loadAdminData() {
     customers: customers.rows,
     subscriptions: subscriptions.rows,
     checks: checks.rows,
+    operations: operations.rows,
     duplicates: duplicates.rows,
   };
 }
@@ -214,7 +224,7 @@ export default async function AdminPage({ searchParams }) {
   try {
     data = await loadAdminData();
   } catch (err) {
-    data = { licenses: [], customers: [], subscriptions: [], checks: [], duplicates: [] };
+    data = { licenses: [], customers: [], subscriptions: [], checks: [], operations: [], duplicates: [] };
     error = err.message || 'Admin Daten konnten nicht geladen werden.';
   }
 
@@ -247,6 +257,30 @@ export default async function AdminPage({ searchParams }) {
       <AdminLicenseForm adminSecret={secret} />
 
       <AdminLicensesPanel adminSecret={secret} licenses={serializeRows(data.licenses)} stripeMode={stripeMode()} />
+
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Lizenz-Operationsprotokoll</h2>
+          <small>Letzte 200 Aktionen · unveränderlicher Audit-Log</small>
+        </div>
+        <Table
+          rows={data.operations}
+          empty="Noch keine protokollierten Lizenzoperationen."
+          columns={[
+            { key: 'created_at', label: 'Zeit', render: (row) => fmtDate(row.created_at) },
+            { key: 'operation', label: 'Operation' },
+            { key: 'outcome', label: 'Ergebnis', render: (row) => <span className={`badge ${row.outcome === 'success' || row.outcome === 'created' || row.outcome === 'existing' ? 'ok' : 'bad'}`}>{text(row.outcome)}</span> },
+            { key: 'source', label: 'Quelle' },
+            { key: 'license_key', label: 'License Key', render: (row) => <code>{row.license_key ? maskLicenseKey(row.license_key) : '-'}</code> },
+            { key: 'machine_id', label: 'Computer-ID', render: (row) => <code>{text(row.machine_id)}</code> },
+            { key: 'previous_machine_id', label: 'Vorherige ID', render: (row) => <code>{text(row.previous_machine_id)}</code> },
+            { key: 'status_after', label: 'Status' },
+            { key: 'app_version', label: 'App' },
+            { key: 'ip', label: 'IP' },
+            { key: 'details', label: 'Details', render: (row) => <code>{row.details && Object.keys(row.details).length ? JSON.stringify(row.details) : '-'}</code> },
+          ]}
+        />
+      </section>
 
       <section className="panel">
         <div className="panel-head">

@@ -2,6 +2,7 @@ import { json, readJson, requireAdmin } from '../../../../../lib/http.js';
 import { query } from '../../../../../lib/db.js';
 import { getStripe } from '../../../../../lib/stripe.js';
 import { findLicenseByKey, publicLicenseResponse } from '../../../../../lib/license.js';
+import { logLicenseOperation } from '../../../../../lib/license-audit.js';
 
 function toUnix(value) {
   const time = new Date(value).getTime();
@@ -43,6 +44,7 @@ export async function POST(request) {
          returning *`,
         [new Date(trialEndUnix * 1000).toISOString(), `Trial set manually until ${new Date(trialEndUnix * 1000).toISOString()}.`, license.id],
       );
+      await logLicenseOperation({ operation: 'admin.trial_set', outcome: 'success', source: 'admin', license: updated.rows[0], machineId: updated.rows[0].activated_machine_id, statusBefore: license.status, statusAfter: updated.rows[0].status, request, details: { trial_ends_at: updated.rows[0].trial_ends_at } });
       return json({ ok: true, ...publicLicenseResponse(updated.rows[0], 'Trial updated') });
     }
 
@@ -60,6 +62,7 @@ export async function POST(request) {
          returning *`,
         ['Trial canceled manually.', license.id],
       );
+      await logLicenseOperation({ operation: 'admin.trial_cancel', outcome: 'success', source: 'admin', license: updated.rows[0], machineId: updated.rows[0].activated_machine_id, statusBefore: license.status, statusAfter: updated.rows[0].status, request });
       return json({ ok: true, ...publicLicenseResponse(updated.rows[0], 'Trial canceled') });
     }
 

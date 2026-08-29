@@ -3,6 +3,7 @@ import { query, withTransaction } from '../../../../../lib/db.js';
 import { findLicenseByKey, publicLicenseResponse } from '../../../../../lib/license.js';
 import { getStripe } from '../../../../../lib/stripe.js';
 import { requireStripeDeleteConfirmation } from '../../../../../lib/license-deletion.js';
+import { logLicenseOperation } from '../../../../../lib/license-audit.js';
 
 function appendNote(note, line) {
   return [String(note || '').trim(), line].filter(Boolean).join('\n');
@@ -43,6 +44,7 @@ export async function POST(request) {
          returning *`,
         [appendNote(license.note, `Machine ID released manually at ${new Date().toISOString()}.`), license.id],
       );
+      await logLicenseOperation({ operation: 'admin.release_machine', outcome: 'success', source: 'admin', license: updated.rows[0], previousMachineId: license.activated_machine_id, statusBefore: license.status, statusAfter: updated.rows[0].status, request });
       return json({ ok: true, ...adminLicenseResponse(updated.rows[0], 'Machine ID released') });
     }
 
@@ -56,6 +58,7 @@ export async function POST(request) {
          returning *`,
         [appendNote(license.note, `License revoked manually at ${new Date().toISOString()}.`), license.id],
       );
+      await logLicenseOperation({ operation: 'admin.revoke', outcome: 'success', source: 'admin', license: updated.rows[0], machineId: updated.rows[0].activated_machine_id, statusBefore: license.status, statusAfter: updated.rows[0].status, request });
       return json({ ok: true, ...adminLicenseResponse(updated.rows[0], 'License revoked') });
     }
 
@@ -72,6 +75,7 @@ export async function POST(request) {
          returning *`,
         [appendNote(license.note, `License reactivated manually at ${new Date().toISOString()}.`), license.id],
       );
+      await logLicenseOperation({ operation: 'admin.reactivate', outcome: 'success', source: 'admin', license: updated.rows[0], machineId: updated.rows[0].activated_machine_id, statusBefore: license.status, statusAfter: updated.rows[0].status, request });
       return json({ ok: true, ...adminLicenseResponse(updated.rows[0], 'License reactivated') });
     }
 
@@ -90,6 +94,7 @@ export async function POST(request) {
       }
 
       await withTransaction(async (client) => {
+        await logLicenseOperation({ operation: 'admin.delete', outcome: 'success', source: 'admin', license, machineId: license.activated_machine_id, statusBefore: license.status, statusAfter: 'deleted', request, details: { stripe_subscription: Boolean(license.stripe_subscription_id) }, executor: client });
         await client.query(`delete from license_checks where upper(license_key) = upper($1)`, [license.license_key]);
         if (license.stripe_subscription_id) {
           await client.query(

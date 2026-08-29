@@ -1,6 +1,7 @@
 import { json, readJson, requireAdmin } from '../../../../../lib/http.js';
 import { withTransaction } from '../../../../../lib/db.js';
 import { findLicenseByKey, publicLicenseResponse } from '../../../../../lib/license.js';
+import { logLicenseOperation } from '../../../../../lib/license-audit.js';
 
 const ALLOWED_TYPES = new Set(['trial', 'subscription', 'lifetime', 'demo', 'internal']);
 const ALLOWED_STATUSES = new Set([
@@ -138,7 +139,21 @@ export async function POST(request) {
         ],
       );
 
-      return result.rows[0];
+      const row = result.rows[0];
+      await logLicenseOperation({
+        operation: 'admin.update',
+        outcome: 'success',
+        source: 'admin',
+        license: row,
+        machineId: row.activated_machine_id,
+        previousMachineId: license.activated_machine_id,
+        statusBefore: license.status,
+        statusAfter: row.status,
+        request,
+        details: { type_before: license.type, type_after: row.type },
+        executor: client,
+      });
+      return row;
     });
 
     return json({ ok: true, ...adminLicenseResponse(updated, 'License updated') });

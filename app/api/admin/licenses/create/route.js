@@ -1,6 +1,7 @@
 import { json, readJson, requireAdmin } from '../../../../../lib/http.js';
 import { withTransaction } from '../../../../../lib/db.js';
 import { insertLicense, publicLicenseResponse } from '../../../../../lib/license.js';
+import { logLicenseOperation } from '../../../../../lib/license-audit.js';
 
 export async function POST(request) {
   if (!requireAdmin(request)) return json({ ok: false, message: 'Unauthorized' }, 401);
@@ -50,7 +51,7 @@ export async function POST(request) {
         }
       }
 
-      return insertLicense({
+      const created = await insertLicense({
         customer_id: customerId,
         type,
         status: type === 'trial' ? 'trialing' : 'active',
@@ -67,6 +68,8 @@ export async function POST(request) {
         created_by: 'admin-ui',
         note: body.note || null,
       }, client);
+      await logLicenseOperation({ operation: 'admin.create', outcome: 'created', source: 'admin', license: created, machineId: created.activated_machine_id, statusAfter: created.status, request, executor: client });
+      return created;
     });
 
     return json({ ok: true, ...publicLicenseResponse(license, 'Manual license created') });
