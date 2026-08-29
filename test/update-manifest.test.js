@@ -31,6 +31,26 @@ test("builds a complete optional Windows update manifest", () => {
   assert.deepEqual(manifest.release_notes, ["Fehlerkorrekturen", "Stabilitaet verbessert"]);
 });
 
+test("allows ZIP releases only in explicit test mode", () => {
+  const manifest = buildWindowsUpdateManifest({
+    ...validEnvironment,
+    WINDOWS_UPDATE_URL: "https://downloads.lohn-mail.de/LohnMail-2.0.1-test.zip",
+    WINDOWS_UPDATE_TEST_MODE: "true",
+  });
+  assert.equal(manifest.test_mode, true);
+  assert.match(manifest.download_url, /\.zip$/);
+});
+
+test("rejects ZIP releases outside test mode", () => {
+  assert.throws(
+    () => buildWindowsUpdateManifest({
+      ...validEnvironment,
+      WINDOWS_UPDATE_URL: "https://downloads.lohn-mail.de/LohnMail-2.0.1.zip",
+    }),
+    /EXE or MSI installer/,
+  );
+});
+
 test("allows mandatory updates only for supported critical reasons", () => {
   const manifest = buildWindowsUpdateManifest({
     ...validEnvironment,
