@@ -2,23 +2,22 @@ import { buildWindowsUpdateManifest } from "../../../../../lib/update-manifest.j
 
 export const dynamic = "force-dynamic";
 
-const WINDOWS_2_0_2_TEST_RELEASE = {
+const WINDOWS_2_0_3_TEST_RELEASE = {
   available: true,
   platform: "windows",
-  version: "2.0.2",
-  build: "2026.08.31.2",
-  sha256: "0669248479d280cf40da91222c53f1cd7f9159a1cd4aebc7a5f1a6b92dd5831b",
-  size: 1720629,
+  version: "2.0.3",
+  build: "2026.08.31.1",
+  sha256: "9dca33579f2f05da05b4f54d7bda895058f0235c2ec18c7703c13de3aa40d801",
+  size: 1718489,
   release_notes: [
-    "Neuer integrierter Update-Ablauf im LohnMail-Design",
-    "Download-Fortschritt und verständliche Bestätigungen",
-    "SQLite-Integritätsprüfung vor und nach der Installation",
-    "Sicherung, Selbsttest und automatischer Rollback bei Installationsfehlern",
-    "Einstellungen, Unternehmen und Berichte bleiben unverändert",
-    "Einheitliche Update-Seite mit einem geführten Aktionsknopf",
-    "Verständliche Meldungen bei Netzwerk-, SQLite- und Rollback-Fehlern",
+    "Test-Update von LohnMail 2.0.2 auf Version 2.0.3",
+    "WAL-kompatible SQLite-Integritätsprüfung ohne falsche Nur-Lesen-Blockierung",
+    "Das Update ersetzt ausschließlich den Programmordner App",
+    "Settings, Unternehmen, Lizenzdaten und Berichte bleiben unverändert",
+    "Sicherung, Selbsttest und automatischer Rollback bleiben aktiv",
+    "Das Dashboard zeigt nach dem Neustart die installierte Testversion an",
   ],
-  published_at: "2026-08-31T16:58:11+02:00",
+  published_at: "2026-08-31T21:18:23+02:00",
   required: false,
   required_reason: null,
   test_mode: true,
@@ -30,12 +29,12 @@ export async function GET(request) {
     const manifest = configuredManifest.available
       ? configuredManifest
       : {
-          ...WINDOWS_2_0_2_TEST_RELEASE,
-          download_url: `${new URL(request.url).origin}/downloads/LohnMail-2.0.2-build-2026.08.31.2-test-update.zip`,
+          ...WINDOWS_2_0_3_TEST_RELEASE,
+          download_url: `${new URL(request.url).origin}/downloads/LohnMail-2.0.3-build-2026.08.31.1-test-update.zip`,
         };
     return Response.json(manifest, {
       headers: {
-        "Cache-Control": "public, max-age=300, s-maxage=300, stale-while-revalidate=600",
+        "Cache-Control": "no-store",
       },
     });
   } catch (error) {
