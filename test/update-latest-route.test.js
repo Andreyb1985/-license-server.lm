@@ -12,7 +12,7 @@ test("production Windows channel publishes the approved 2.0.3 test release", asy
 
   assert.equal(manifest.available, true);
   assert.equal(manifest.version, "2.0.3");
-  assert.equal(manifest.build, "2026.08.31.2");
+  assert.equal(manifest.build, "2026.08.31.3");
   assert.equal(manifest.test_mode, true);
 
   const archiveName = path.basename(new URL(manifest.download_url).pathname);
